@@ -20,7 +20,7 @@ class Settings:
     ib_account: str = os.getenv("IB_ACCOUNT", "")
 
     host: str = os.getenv("HOST", "0.0.0.0")
-    port: int = int(os.getenv("PORT", "8080"))
+    port: int = int(os.getenv("PORT", "80"))
 
     default_exchange: str = os.getenv("DEFAULT_EXCHANGE", "SMART")
     default_currency: str = os.getenv("DEFAULT_CURRENCY", "USD")

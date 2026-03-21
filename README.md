@@ -50,7 +50,7 @@ cp .env.example .env
 4. Start service:
 
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8080
+uvicorn main:app --host 0.0.0.0 --port 80
 ```
 
 ## Test with curl
@@ -114,7 +114,7 @@ sudo systemctl restart nginx
 6. AWS Security Group:
 
 - Allow inbound `80/tcp` from your signal source IP(s).
-- Keep `8080` closed to the internet.
+- If running behind Nginx, keep the app bound to loopback and keep internal app ports closed to the internet.
 - Keep SSH `22/tcp` restricted to your admin IP.
 
 7. View logs:
@@ -190,6 +190,6 @@ sudo systemctl restart ib-trade-executor
 
 ## Security recommendations
 
-- Keep port 8080 private (loopback-only service or no SG exposure).
-- Use Nginx on port 80, and preferably add HTTPS (Let's Encrypt) for production.
+- Keep direct app access restricted if you deploy a reverse proxy.
+- Prefer HTTPS (Let's Encrypt) for production.
 
