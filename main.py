@@ -2,13 +2,24 @@ import os
 import time
 import asyncio
 import threading
+import shutil
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, status
 from ib_insync import IB, MarketOrder, Stock
 from pydantic import BaseModel, Field
 
+def ensure_env_file() -> None:
+    env_path = Path(".env")
+    example_path = Path(".env.example")
+    if env_path.exists() or not example_path.exists():
+        return
+    shutil.copyfile(example_path, env_path)
+
+
+ensure_env_file()
 load_dotenv()
 
 
