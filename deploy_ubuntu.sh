@@ -109,13 +109,14 @@ Description=TigerVNC Server on ${VNC_DISPLAY}
 After=network.target
 
 [Service]
-Type=forking
+Type=simple
 User=${DEPLOY_USER}
-PAMName=login
-PIDFile=${DEPLOY_HOME}/.vnc/%H${VNC_DISPLAY}.pid
 ExecStartPre=-/usr/bin/vncserver -kill ${VNC_DISPLAY}
-ExecStart=/usr/bin/vncserver ${VNC_DISPLAY} -geometry ${VNC_GEOMETRY} -depth ${VNC_DEPTH} -localhost no
+ExecStartPre=-/bin/rm -f /tmp/.X11-unix/X${VNC_DISPLAY#:} /tmp/.X${VNC_DISPLAY#:}-lock
+ExecStart=/usr/bin/vncserver ${VNC_DISPLAY} -fg -geometry ${VNC_GEOMETRY} -depth ${VNC_DEPTH} -localhost no -xstartup ${DEPLOY_HOME}/.vnc/xstartup
 ExecStop=/usr/bin/vncserver -kill ${VNC_DISPLAY}
+Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
