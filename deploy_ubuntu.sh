@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR="/"
+APP_DIR="/opt/ib-trade-executor"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -z "${APP_DIR}" ] || [ "${APP_DIR}" = "/" ]; then
+  echo "Refusing to use APP_DIR='${APP_DIR}'. Set APP_DIR to a non-root application directory."
+  exit 1
+fi
 
 sudo apt update
 sudo apt install -y python3 python3-venv nginx
 
 sudo mkdir -p "$APP_DIR"
-sudo chown -R "$USER":"$USER" "$APP_DIR"
+sudo chown "$USER":"$USER" "$APP_DIR"
 
 # Sync project files from where this script lives into APP_DIR.
 cp "$SCRIPT_DIR/main.py" "$APP_DIR/main.py"
