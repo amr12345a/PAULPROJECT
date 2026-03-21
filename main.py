@@ -1,5 +1,7 @@
 import os
 import time
+import asyncio
+import threading
 from dataclasses import dataclass
 
 from dotenv import load_dotenv
@@ -48,8 +50,18 @@ class IBExecutor:
         self.cfg = cfg
         self.ib = IB()
         self.last_connect_attempt = 0.0
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _ensure_thread_event_loop() -> None:
+        try:
+            asyncio.get_event_loop()
+        except RuntimeError:
+            asyncio.set_event_loop(asyncio.new_event_loop())
 
     def ensure_connected(self) -> None:
+        self._ensure_thread_event_loop()
+
         if self.ib.isConnected():
             return
 
@@ -68,33 +80,34 @@ class IBExecutor:
         )
 
     def place_market_order(self, ticker: str, action: str, quantity: int) -> dict:
-        self.ensure_connected()
+        with self._lock:
+            self.ensure_connected()
 
-        contract = Stock(
-            symbol=ticker.upper(),
-            exchange=self.cfg.default_exchange,
-            currency=self.cfg.default_currency,
-        )
-        qualified = self.ib.qualifyContracts(contract)
-        if not qualified:
-            raise RuntimeError(f"Contract qualification failed for ticker '{ticker}'")
+            contract = Stock(
+                symbol=ticker.upper(),
+                exchange=self.cfg.default_exchange,
+                currency=self.cfg.default_currency,
+            )
+            qualified = self.ib.qualifyContracts(contract)
+            if not qualified:
+                raise RuntimeError(f"Contract qualification failed for ticker '{ticker}'")
 
-        order = MarketOrder(action.upper(), quantity)
-        if self.cfg.ib_account:
-            order.account = self.cfg.ib_account
+            order = MarketOrder(action.upper(), quantity)
+            if self.cfg.ib_account:
+                order.account = self.cfg.ib_account
 
-        trade = self.ib.placeOrder(contract, order)
-        self.ib.sleep(0.5)
+            trade = self.ib.placeOrder(contract, order)
+            self.ib.sleep(0.5)
 
-        status_text = trade.orderStatus.status if trade.orderStatus else "Unknown"
-        return {
-            "symbol": ticker.upper(),
-            "action": action.lower(),
-            "quantity": quantity,
-            "order_id": trade.order.orderId if trade.order else None,
-            "perm_id": trade.order.permId if trade.order else None,
-            "status": status_text,
-        }
+            status_text = trade.orderStatus.status if trade.orderStatus else "Unknown"
+            return {
+                "symbol": ticker.upper(),
+                "action": action.lower(),
+                "quantity": quantity,
+                "order_id": trade.order.orderId if trade.order else None,
+                "perm_id": trade.order.permId if trade.order else None,
+                "status": status_text,
+            }
 
 
 app = FastAPI(title="IBKR Trade Executor", version="1.0.0")

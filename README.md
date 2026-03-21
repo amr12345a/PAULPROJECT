@@ -56,7 +56,7 @@ uvicorn main:app --host 0.0.0.0 --port 8080
 ## Test with curl
 
 ```bash
-curl -X POST "http://127.0.0.1:8080/trade" \
+curl -X POST "http://13.53.172.241/trade" \
   -H "content-type: application/json" \
   -d '{"id":"my-bot2","ticker":"AAPL","action":"buy"}'
 ```
@@ -127,9 +127,9 @@ sudo tail -f /var/log/nginx/access.log /var/log/nginx/error.log
 8. Validate through Nginx (port 80):
 
 ```bash
-curl http://127.0.0.1/health
+curl http://13.53.172.241/health
 
-curl -X POST "http://127.0.0.1/trade" \
+curl -X POST "http://13.53.172.241/trade" \
   -H "content-type: application/json" \
   -d '{"id":"my-bot2","ticker":"AAPL","action":"buy"}'
 ```
