@@ -26,6 +26,14 @@ class Settings:
     default_currency: str = os.getenv("DEFAULT_CURRENCY", "USD")
     default_order_type: str = os.getenv("DEFAULT_ORDER_TYPE", "MKT")
     default_quantity: int = int(os.getenv("DEFAULT_QUANTITY", "1"))
+    default_tif: str = os.getenv("DEFAULT_TIF", "DAY").upper()
+    default_outside_rth: bool = os.getenv("DEFAULT_OUTSIDE_RTH", "true").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    order_status_wait_seconds: float = float(os.getenv("ORDER_STATUS_WAIT_SECONDS", "2.0"))
     allowed_bot_ids: set[str] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
@@ -93,13 +101,24 @@ class IBExecutor:
                 raise RuntimeError(f"Contract qualification failed for ticker '{ticker}'")
 
             order = MarketOrder(action.upper(), quantity)
+            order.tif = self.cfg.default_tif
+            order.outsideRth = self.cfg.default_outside_rth
             if self.cfg.ib_account:
                 order.account = self.cfg.ib_account
 
-            trade = self.ib.placeOrder(contract, order)
-            self.ib.sleep(0.5)
+            qualified_contract = qualified[0]
+            trade = self.ib.placeOrder(qualified_contract, order)
+            self.ib.sleep(max(self.cfg.order_status_wait_seconds, 0.2))
 
             status_text = trade.orderStatus.status if trade.orderStatus else "Unknown"
+            if status_text.lower() in {"cancelled", "inactive", "api cancelled"}:
+                broker_reason = ""
+                if trade.log:
+                    broker_reason = trade.log[-1].message or ""
+                if not broker_reason:
+                    broker_reason = trade.advancedError or "IB rejected/cancelled order"
+                raise RuntimeError(f"IB order was {status_text}: {broker_reason}")
+
             return {
                 "symbol": ticker.upper(),
                 "action": action.lower(),
@@ -107,6 +126,8 @@ class IBExecutor:
                 "order_id": trade.order.orderId if trade.order else None,
                 "perm_id": trade.order.permId if trade.order else None,
                 "status": status_text,
+                "tif": order.tif,
+                "outside_rth": bool(order.outsideRth),
             }
 
 
