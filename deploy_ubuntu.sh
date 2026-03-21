@@ -40,11 +40,13 @@ sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$APP_DIR"
 
 sudo mkdir -p "$IB_GATEWAY_DIR"
 sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$IB_GATEWAY_DIR"
+sudo -u "$DEPLOY_USER" mkdir -p "$DEPLOY_HOME/Jts"
 
 # Sync project files from where this script lives into APP_DIR.
 cp "$SCRIPT_DIR/main.py" "$APP_DIR/main.py"
 cp "$SCRIPT_DIR/requirements.txt" "$APP_DIR/requirements.txt"
 cp "$SCRIPT_DIR/.env.example" "$APP_DIR/.env.example"
+cp "$SCRIPT_DIR/ib-trade-executor.service" "$APP_DIR/ib-trade-executor.service"
 cp "$SCRIPT_DIR/ib-trade-executor.nginx" "$APP_DIR/ib-trade-executor.nginx"
 cp "$SCRIPT_DIR/README.md" "$APP_DIR/README.md"
 
@@ -66,13 +68,25 @@ if [ ! -f .env ]; then
   echo "Created .env from template. Please edit it now: $APP_DIR/.env"
 fi
 
+APP_PORT="$(grep -E '^PORT=' .env | tail -n 1 | cut -d '=' -f2 | tr -d '[:space:]' || true)"
+if [ -z "$APP_PORT" ]; then
+  APP_PORT="80"
+fi
+
+sudo cp ib-trade-executor.service /etc/systemd/system/ib-trade-executor.service
+sudo systemctl daemon-reload
+sudo systemctl enable ib-trade-executor
+sudo systemctl restart ib-trade-executor
+sudo systemctl status ib-trade-executor --no-pager
+
 if [ -n "$IB_GATEWAY_INSTALLER_URL" ]; then
   installer_path="/tmp/ibgateway-installer"
   echo "Downloading IB Gateway installer from: $IB_GATEWAY_INSTALLER_URL"
   wget -O "$installer_path" "$IB_GATEWAY_INSTALLER_URL"
+  chmod +x "$installer_path"
 
   # Most IB Gateway installers are install4j-based and support -q and -dir.
-  if bash "$installer_path" -q -dir "$IB_GATEWAY_DIR"; then
+  if sudo -u "$DEPLOY_USER" bash "$installer_path" -q -dir "$IB_GATEWAY_DIR"; then
     echo "IB Gateway installed into $IB_GATEWAY_DIR"
   else
     echo "Automatic IB Gateway install failed. Install manually into $IB_GATEWAY_DIR and rerun."
@@ -133,6 +147,10 @@ Requires=tigervnc.service
 Type=simple
 User=${DEPLOY_USER}
 WorkingDirectory=${IB_GATEWAY_DIR}
+Environment=HOME=${DEPLOY_HOME}
+Environment=LOGNAME=${DEPLOY_USER}
+Environment=USER=${DEPLOY_USER}
+Environment=JTS_HOME=${DEPLOY_HOME}/Jts
 Environment=DISPLAY=${VNC_DISPLAY}
 ExecStart=${IB_GATEWAY_LAUNCHER}
 Restart=always
@@ -156,10 +174,15 @@ else
   sudo systemctl status tigervnc --no-pager
 fi
 
-sudo cp ib-trade-executor.nginx /etc/nginx/sites-available/ib-trade-executor
-sudo ln -sf /etc/nginx/sites-available/ib-trade-executor /etc/nginx/sites-enabled/ib-trade-executor
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t
-sudo systemctl enable nginx
-sudo systemctl restart nginx
-sudo systemctl status nginx --no-pager
+if [ "$APP_PORT" = "80" ]; then
+  echo "APP port is 80; skipping nginx reverse-proxy setup to avoid port conflict."
+  sudo systemctl disable --now nginx || true
+else
+  sudo cp ib-trade-executor.nginx /etc/nginx/sites-available/ib-trade-executor
+  sudo ln -sf /etc/nginx/sites-available/ib-trade-executor /etc/nginx/sites-enabled/ib-trade-executor
+  sudo rm -f /etc/nginx/sites-enabled/default
+  sudo nginx -t
+  sudo systemctl enable nginx
+  sudo systemctl restart nginx
+  sudo systemctl status nginx --no-pager
+fi
