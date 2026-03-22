@@ -105,6 +105,26 @@ if [ -z "$IB_GATEWAY_LAUNCHER" ]; then
   fi
 fi
 
+# Some IB Gateway installs persist /root/Jts in config if initially run as root.
+# Rewrite to the requested user path to avoid launcher log initialization failures.
+sudo grep -R -l "/root/Jts" "$IB_GATEWAY_DIR" "$DEPLOY_HOME" 2>/dev/null | while read -r f; do
+  sudo sed -i "s#/root/Jts#${JTS_HOME}#g" "$f" || true
+done
+
+IB_GATEWAY_WRAPPER="${IB_GATEWAY_DIR}/run-ibgateway.sh"
+cat > "$IB_GATEWAY_WRAPPER" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+export HOME="${DEPLOY_HOME}"
+export USER="${DEPLOY_USER}"
+export LOGNAME="${DEPLOY_USER}"
+export JTS_HOME="${JTS_HOME}"
+export DISPLAY="${VNC_DISPLAY}"
+exec "${IB_GATEWAY_LAUNCHER}" "\$@"
+EOF
+chmod +x "$IB_GATEWAY_WRAPPER"
+sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$IB_GATEWAY_WRAPPER"
+
 sudo -u "$DEPLOY_USER" mkdir -p "$DEPLOY_HOME/.vnc"
 printf "%s\n" "$VNC_PASSWORD" | sudo -u "$DEPLOY_USER" vncpasswd -f > "$DEPLOY_HOME/.vnc/passwd"
 sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$DEPLOY_HOME/.vnc/passwd"
@@ -154,7 +174,7 @@ Environment=LOGNAME=${DEPLOY_USER}
 Environment=USER=${DEPLOY_USER}
 Environment=JTS_HOME=${JTS_HOME}
 Environment=DISPLAY=${VNC_DISPLAY}
-ExecStart=${IB_GATEWAY_LAUNCHER}
+ExecStart=${IB_GATEWAY_WRAPPER}
 Restart=always
 RestartSec=5
 
