@@ -5,6 +5,7 @@ APP_DIR="/opt/ib-trade-executor"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_USER="${SUDO_USER:-$USER}"
 DEPLOY_HOME="$(eval echo "~${DEPLOY_USER}")"
+JTS_HOME="/home/ubuntu/Jts"
 
 IB_GATEWAY_DIR="/opt/ibgateway"
 IB_GATEWAY_INSTALLER_URL="${IB_GATEWAY_INSTALLER_URL:-https://download2.interactivebrokers.com/installers/ibgateway/latest-standalone/ibgateway-latest-standalone-linux-x64.sh}"
@@ -40,7 +41,8 @@ sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$APP_DIR"
 
 sudo mkdir -p "$IB_GATEWAY_DIR"
 sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$IB_GATEWAY_DIR"
-sudo -u "$DEPLOY_USER" mkdir -p "$DEPLOY_HOME/Jts"
+sudo mkdir -p "$JTS_HOME"
+sudo chown -R "$DEPLOY_USER":"$DEPLOY_USER" "$JTS_HOME"
 
 # Sync project files from where this script lives into APP_DIR.
 cp "$SCRIPT_DIR/main.py" "$APP_DIR/main.py"
@@ -150,7 +152,7 @@ WorkingDirectory=${IB_GATEWAY_DIR}
 Environment=HOME=${DEPLOY_HOME}
 Environment=LOGNAME=${DEPLOY_USER}
 Environment=USER=${DEPLOY_USER}
-Environment=JTS_HOME=${DEPLOY_HOME}/Jts
+Environment=JTS_HOME=${JTS_HOME}
 Environment=DISPLAY=${VNC_DISPLAY}
 ExecStart=${IB_GATEWAY_LAUNCHER}
 Restart=always
