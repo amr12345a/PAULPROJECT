@@ -81,29 +81,34 @@ if [ -z "$IB_GATEWAY_IDS" ] && [ -f .env ]; then
   IB_GATEWAY_IDS="$(grep -E '^IB_GATEWAY_IDS=' .env | tail -n 1 | cut -d'=' -f2- | tr -d '[:space:]' || true)"
 fi
 
+# Try to detect launcher if not explicitly set, to avoid redundant installation attempts
+if [ -z "$IB_GATEWAY_LAUNCHER" ]; then
+  detected_launcher="$(find "$IB_GATEWAY_DIR" -maxdepth 4 -type f \( -name ibgateway -o -name ibgateway.sh -o -name gatewaystart.sh \) 2>/dev/null | head -n 1 || true)"
+  if [ -n "$detected_launcher" ]; then
+    IB_GATEWAY_LAUNCHER="$detected_launcher"
+  fi
+fi
+
 sudo cp ib-trade-executor.service /etc/systemd/system/ib-trade-executor.service
 sudo systemctl daemon-reload
 sudo systemctl enable ib-trade-executor
 sudo systemctl restart ib-trade-executor
 
-# Only run installer if launcher doesn't exist
-if [ -n "$IB_GATEWAY_INSTALLER_URL" ] && [ ! -f "$IB_GATEWAY_LAUNCHER" ]; then
+# Only run installer if launcher is still not found
+if [ -n "$IB_GATEWAY_INSTALLER_URL" ] && [ ! -x "$IB_GATEWAY_LAUNCHER" ]; then
   installer_path="/tmp/ibgateway-installer"
-  echo "Downloading IB Gateway installer from: $IB_GATEWAY_INSTALLER_URL"
   if [ ! -f "$installer_path" ]; then
+    echo "Downloading IB Gateway installer from: $IB_GATEWAY_INSTALLER_URL"
     wget -O "$installer_path" "$IB_GATEWAY_INSTALLER_URL"
   fi
   chmod +x "$installer_path"
 
-  # Most IB Gateway installers are install4j-based and support -q and -dir.
-  if sudo -u "$DEPLOY_USER" bash "$installer_path" -q -dir "$IB_GATEWAY_DIR"; then
+  echo "Running IB Gateway installer..."
+  if sudo -u "$DEPLOY_USER" bash "$installer_path" -q -dir "$IB_GATEWAY_DIR" || [ -d "$IB_GATEWAY_DIR/bin" ]; then
     echo "IB Gateway installed into $IB_GATEWAY_DIR"
-  else
-    echo "Automatic IB Gateway install failed. Install manually into $IB_GATEWAY_DIR and rerun."
+    # Re-detect launcher after installation
+    IB_GATEWAY_LAUNCHER="$(find "$IB_GATEWAY_DIR" -maxdepth 4 -type f \( -name ibgateway -o -name ibgateway.sh -o -name gatewaystart.sh \) 2>/dev/null | head -n 1 || true)"
   fi
-else
-  echo "IB_GATEWAY_INSTALLER_URL not set; skipping automatic IB Gateway download/install."
-  echo "Set IB_GATEWAY_INSTALLER_URL and rerun to install IB Gateway automatically."
 fi
 
 if [ -z "$IB_GATEWAY_LAUNCHER" ]; then
