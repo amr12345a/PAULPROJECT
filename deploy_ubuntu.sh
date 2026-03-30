@@ -77,6 +77,10 @@ if [ -z "$APP_PORT" ]; then
   APP_PORT="80"
 fi
 
+if [ -z "$IB_GATEWAY_IDS" ] && [ -f .env ]; then
+  IB_GATEWAY_IDS="$(grep -E '^IB_GATEWAY_IDS=' .env | tail -n 1 | cut -d'=' -f2- | tr -d '[:space:]' || true)"
+fi
+
 sudo cp ib-trade-executor.service /etc/systemd/system/ib-trade-executor.service
 sudo systemctl daemon-reload
 sudo systemctl enable ib-trade-executor
