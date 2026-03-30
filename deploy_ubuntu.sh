@@ -10,6 +10,7 @@ JTS_HOME="/home/ubuntu/Jts"
 IB_GATEWAY_DIR="/opt/ibgateway"
 IB_GATEWAY_INSTALLER_URL="${IB_GATEWAY_INSTALLER_URL:-https://download2.interactivebrokers.com/installers/ibgateway/latest-standalone/ibgateway-latest-standalone-linux-x64.sh}"
 IB_GATEWAY_LAUNCHER="${IB_GATEWAY_LAUNCHER:-}"
+IB_GATEWAY_IDS="${IB_GATEWAY_IDS:-}"
 
 VNC_DISPLAY=":1"
 VNC_GEOMETRY="${VNC_GEOMETRY:-1920x1080}"
@@ -27,6 +28,7 @@ sudo apt install -y \
   python3-venv \
   nginx \
   default-jre \
+  dbus-x11 \
   xvfb \
   tigervnc-standalone-server \
   tigervnc-common \
@@ -134,7 +136,14 @@ cat > "$DEPLOY_HOME/.vnc/xstartup" <<'EOF'
 #!/usr/bin/env bash
 unset SESSION_MANAGER
 unset DBUS_SESSION_BUS_ADDRESS
-exec startxfce4
+
+if command -v dbus-launch >/dev/null 2>&1; then
+  exec dbus-launch --exit-with-session startxfce4
+elif command -v dbus-run-session >/dev/null 2>&1; then
+  exec dbus-run-session -- startxfce4
+else
+  exec startxfce4
+fi
 EOF
 sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$DEPLOY_HOME/.vnc/xstartup"
 chmod +x "$DEPLOY_HOME/.vnc/xstartup"
@@ -159,7 +168,73 @@ WantedBy=multi-user.target
 EOF
 
 if [ -n "$IB_GATEWAY_LAUNCHER" ] && [ -f "$IB_GATEWAY_LAUNCHER" ]; then
-  sudo tee /etc/systemd/system/ibgateway.service >/dev/null <<EOF
+  sudo systemctl daemon-reload
+  sudo systemctl enable tigervnc
+  sudo systemctl restart tigervnc
+
+  if [ -n "$IB_GATEWAY_IDS" ]; then
+    IFS=',' read -r -a gateway_ids <<< "$IB_GATEWAY_IDS"
+    for raw_id in "${gateway_ids[@]}"; do
+      bot_id="$(echo "$raw_id" | xargs)"
+      if [ -z "$bot_id" ]; then
+        continue
+      fi
+      if ! echo "$bot_id" | grep -Eq '^[A-Za-z0-9_-]+$'; then
+        echo "Skipping invalid bot ID in IB_GATEWAY_IDS: '$bot_id' (allowed chars: A-Z a-z 0-9 _ -)"
+        continue
+      fi
+
+      bot_jts_home="/home/${DEPLOY_USER}/Jts-${bot_id}"
+      bot_wrapper="${IB_GATEWAY_DIR}/run-ibgateway-${bot_id}.sh"
+      bot_service="ibgateway-${bot_id}"
+
+      sudo -u "$DEPLOY_USER" mkdir -p "$bot_jts_home"
+
+      cat > "$bot_wrapper" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+export HOME="${DEPLOY_HOME}"
+export USER="${DEPLOY_USER}"
+export LOGNAME="${DEPLOY_USER}"
+export JTS_HOME="${bot_jts_home}"
+export DISPLAY="${VNC_DISPLAY}"
+exec "${IB_GATEWAY_LAUNCHER}" "\$@"
+EOF
+      chmod +x "$bot_wrapper"
+      sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$bot_wrapper"
+
+      sudo tee "/etc/systemd/system/${bot_service}.service" >/dev/null <<EOF
+[Unit]
+Description=Interactive Brokers Gateway (${bot_id})
+After=network.target tigervnc.service
+Requires=tigervnc.service
+
+[Service]
+Type=simple
+User=${DEPLOY_USER}
+WorkingDirectory=${IB_GATEWAY_DIR}
+Environment=HOME=${DEPLOY_HOME}
+Environment=LOGNAME=${DEPLOY_USER}
+Environment=USER=${DEPLOY_USER}
+Environment=JTS_HOME=${bot_jts_home}
+Environment=DISPLAY=${VNC_DISPLAY}
+ExecStart=${bot_wrapper}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+      sudo systemctl daemon-reload
+      sudo systemctl enable "$bot_service"
+      sudo systemctl restart "$bot_service"
+      sudo systemctl status "$bot_service" --no-pager
+    done
+
+    sudo systemctl status tigervnc --no-pager
+  else
+    sudo tee /etc/systemd/system/ibgateway.service >/dev/null <<EOF
 [Unit]
 Description=Interactive Brokers Gateway
 After=network.target tigervnc.service
@@ -181,13 +256,13 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
-  sudo systemctl daemon-reload
-  sudo systemctl enable tigervnc
-  sudo systemctl restart tigervnc
-  sudo systemctl enable ibgateway
-  sudo systemctl restart ibgateway
-  sudo systemctl status tigervnc --no-pager
-  sudo systemctl status ibgateway --no-pager
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable ibgateway
+    sudo systemctl restart ibgateway
+    sudo systemctl status tigervnc --no-pager
+    sudo systemctl status ibgateway --no-pager
+  fi
 else
   echo "IB Gateway launcher not found. Set IB_GATEWAY_LAUNCHER to the executable path and rerun."
   sudo systemctl daemon-reload

@@ -3,6 +3,7 @@ import time
 import asyncio
 import threading
 import shutil
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -45,7 +46,9 @@ class Settings:
         "on",
     }
     order_status_wait_seconds: float = float(os.getenv("ORDER_STATUS_WAIT_SECONDS", "2.0"))
+    ib_bot_configs_json: str = os.getenv("IB_BOT_CONFIGS_JSON", "").strip()
     allowed_bot_ids: set[str] = None  # type: ignore[assignment]
+    bot_routes: dict[str, "IBConnectionConfig"] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         allowed = os.getenv("ALLOWED_BOT_IDS", "").strip()
@@ -53,6 +56,74 @@ class Settings:
             self.allowed_bot_ids = {x.strip() for x in allowed.split(",") if x.strip()}
         else:
             self.allowed_bot_ids = set()
+
+        self.bot_routes = self._load_bot_routes()
+
+        if self.bot_routes:
+            if self.allowed_bot_ids:
+                missing = sorted(self.allowed_bot_ids - set(self.bot_routes.keys()))
+                if missing:
+                    raise ValueError(
+                        f"ALLOWED_BOT_IDS contains IDs missing from IB_BOT_CONFIGS_JSON: {', '.join(missing)}"
+                    )
+            else:
+                # If route configs exist, default allowed IDs to route keys.
+                self.allowed_bot_ids = set(self.bot_routes.keys())
+
+            self._validate_unique_route_accounts()
+
+    def _load_bot_routes(self) -> dict[str, "IBConnectionConfig"]:
+        if not self.ib_bot_configs_json:
+            return {}
+
+        try:
+            raw = json.loads(self.ib_bot_configs_json)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid IB_BOT_CONFIGS_JSON: {exc}") from exc
+
+        if not isinstance(raw, dict):
+            raise ValueError("IB_BOT_CONFIGS_JSON must be a JSON object keyed by bot id")
+
+        routes: dict[str, IBConnectionConfig] = {}
+        for bot_id, cfg in raw.items():
+            if not isinstance(bot_id, str) or not bot_id.strip():
+                raise ValueError("IB_BOT_CONFIGS_JSON keys must be non-empty bot ID strings")
+            if not isinstance(cfg, dict):
+                raise ValueError(f"Route config for bot id '{bot_id}' must be a JSON object")
+
+            host = str(cfg.get("host", self.ib_host))
+            port = int(cfg.get("port", self.ib_port))
+            client_id = int(cfg.get("client_id", cfg.get("clientId", self.ib_client_id)))
+            account = str(cfg.get("account", "")).strip()
+
+            routes[bot_id] = IBConnectionConfig(
+                host=host,
+                port=port,
+                client_id=client_id,
+                account=account,
+            )
+
+        return routes
+
+    def _validate_unique_route_accounts(self) -> None:
+        account_to_id: dict[str, str] = {}
+        for bot_id, route in self.bot_routes.items():
+            if not route.account:
+                continue
+            if route.account in account_to_id:
+                other_id = account_to_id[route.account]
+                raise ValueError(
+                    f"IB account '{route.account}' is configured for multiple bot IDs: '{other_id}' and '{bot_id}'"
+                )
+            account_to_id[route.account] = bot_id
+
+
+@dataclass(frozen=True)
+class IBConnectionConfig:
+    host: str
+    port: int
+    client_id: int
+    account: str = ""
 
 
 settings = Settings()
@@ -65,8 +136,9 @@ class TradeRequest(BaseModel):
 
 
 class IBExecutor:
-    def __init__(self, cfg: Settings) -> None:
-        self.cfg = cfg
+    def __init__(self, settings: Settings, connection: IBConnectionConfig) -> None:
+        self.settings = settings
+        self.connection = connection
         self.ib = IB()
         self.last_connect_attempt = 0.0
         self._lock = threading.Lock()
@@ -90,12 +162,12 @@ class IBExecutor:
 
         self.last_connect_attempt = time.time()
         self.ib.connect(
-            host=self.cfg.ib_host,
-            port=self.cfg.ib_port,
-            clientId=self.cfg.ib_client_id,
+            host=self.connection.host,
+            port=self.connection.port,
+            clientId=self.connection.client_id,
             timeout=5,
             readonly=False,
-            account=self.cfg.ib_account or "",
+            account=self.connection.account or "",
         )
 
     def place_market_order(self, ticker: str, action: str, quantity: int) -> dict:
@@ -104,22 +176,22 @@ class IBExecutor:
 
             contract = Stock(
                 symbol=ticker.upper(),
-                exchange=self.cfg.default_exchange,
-                currency=self.cfg.default_currency,
+                exchange=self.settings.default_exchange,
+                currency=self.settings.default_currency,
             )
             qualified = self.ib.qualifyContracts(contract)
             if not qualified:
                 raise RuntimeError(f"Contract qualification failed for ticker '{ticker}'")
 
             order = MarketOrder(action.upper(), quantity)
-            order.tif = self.cfg.default_tif
-            order.outsideRth = self.cfg.default_outside_rth
-            if self.cfg.ib_account:
-                order.account = self.cfg.ib_account
+            order.tif = self.settings.default_tif
+            order.outsideRth = self.settings.default_outside_rth
+            if self.connection.account:
+                order.account = self.connection.account
 
             qualified_contract = qualified[0]
             trade = self.ib.placeOrder(qualified_contract, order)
-            self.ib.sleep(max(self.cfg.order_status_wait_seconds, 0.2))
+            self.ib.sleep(max(self.settings.order_status_wait_seconds, 0.2))
 
             status_text = trade.orderStatus.status if trade.orderStatus else "Unknown"
             if status_text.lower() in {"cancelled", "inactive", "api cancelled"}:
@@ -139,19 +211,71 @@ class IBExecutor:
                 "status": status_text,
                 "tif": order.tif,
                 "outside_rth": bool(order.outsideRth),
+                "account": order.account if hasattr(order, "account") else "",
+                "ib_host": self.connection.host,
+                "ib_port": self.connection.port,
+                "ib_client_id": self.connection.client_id,
             }
 
 
+class IBExecutorManager:
+    def __init__(self, cfg: Settings) -> None:
+        self.cfg = cfg
+        self._default_executor = IBExecutor(
+            cfg,
+            IBConnectionConfig(
+                host=cfg.ib_host,
+                port=cfg.ib_port,
+                client_id=cfg.ib_client_id,
+                account=cfg.ib_account,
+            ),
+        )
+        self._route_executors: dict[str, IBExecutor] = {
+            bot_id: IBExecutor(cfg, route)
+            for bot_id, route in cfg.bot_routes.items()
+        }
+
+    def get_executor(self, bot_id: str) -> IBExecutor:
+        if self._route_executors:
+            if bot_id not in self._route_executors:
+                raise KeyError(f"No IB route configured for bot id '{bot_id}'")
+            return self._route_executors[bot_id]
+        return self._default_executor
+
+    def health(self) -> dict:
+        if self._route_executors:
+            return {
+                bot_id: {
+                    "connected": ex.ib.isConnected(),
+                    "host": ex.connection.host,
+                    "port": ex.connection.port,
+                    "client_id": ex.connection.client_id,
+                    "account": ex.connection.account,
+                }
+                for bot_id, ex in self._route_executors.items()
+            }
+
+        ex = self._default_executor
+        return {
+            "default": {
+                "connected": ex.ib.isConnected(),
+                "host": ex.connection.host,
+                "port": ex.connection.port,
+                "client_id": ex.connection.client_id,
+                "account": ex.connection.account,
+            }
+        }
+
+
 app = FastAPI(title="IBKR Trade Executor", version="1.0.0")
-executor = IBExecutor(settings)
+executors = IBExecutorManager(settings)
 
 
 @app.get("/health")
 def health() -> dict:
-    connected = executor.ib.isConnected()
     return {
         "ok": True,
-        "ib_connected": connected,
+        "ib_connections": executors.health(),
     }
 
 
@@ -171,11 +295,17 @@ def trade(payload: TradeRequest) -> dict:
         )
 
     try:
+        executor = executors.get_executor(payload.id)
         result = executor.place_market_order(
             ticker=payload.ticker,
             action=payload.action,
             quantity=qty,
         )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

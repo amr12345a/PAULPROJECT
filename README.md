@@ -22,6 +22,7 @@ Headers:
 
 - Accepts `id`, `ticker`, `action`.
 - Optionally restricts allowed bot IDs.
+- Routes each `id` to its own IB Gateway/API connection (optional, via config).
 - Sends a market order (`BUY` / `SELL`) with configured quantity.
 
 ## Local run
@@ -43,9 +44,19 @@ cp .env.example .env
 
 3. Set values in `.env`:
 
-- `IB_HOST`, `IB_PORT`, `IB_CLIENT_ID`
+- `IB_HOST`, `IB_PORT`, `IB_CLIENT_ID` (single-route fallback)
+- `IB_BOT_CONFIGS_JSON` (recommended for one gateway/account per `id`)
 - `ALLOWED_BOT_IDS` (comma separated)
 - `DEFAULT_QUANTITY`
+
+Example `IB_BOT_CONFIGS_JSON` for two bot IDs:
+
+```bash
+IB_BOT_CONFIGS_JSON={"my-bot1":{"host":"127.0.0.1","port":4001,"client_id":101,"account":"DU111111"},"my-bot2":{"host":"127.0.0.1","port":4002,"client_id":102,"account":"DU222222"}}
+ALLOWED_BOT_IDS=my-bot1,my-bot2
+```
+
+Each configured `account` must be unique across bot IDs.
 
 4. Start service:
 
@@ -169,6 +180,20 @@ xvfb-run -a /opt/ibgateway/ibgateway
 - `IB_PORT=7497` (paper) or `7496` (live)
 - `IB_CLIENT_ID=101` (any unused integer)
 - Optional: `IB_ACCOUNT=<your account id>`
+
+For multiple IB Gateways/accounts, use:
+
+- `IB_BOT_CONFIGS_JSON` with one object per bot `id`
+- different `port` and `client_id` per gateway
+- one unique `account` per bot `id`
+
+If you use `deploy_ubuntu.sh`, you can auto-start one gateway service per bot ID:
+
+```bash
+IB_GATEWAY_IDS=my-bot1,my-bot2
+```
+
+This creates services like `ibgateway-my-bot1` and `ibgateway-my-bot2`.
 
 6. Restart executor after IB settings changes:
 
