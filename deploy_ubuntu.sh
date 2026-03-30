@@ -85,12 +85,14 @@ sudo cp ib-trade-executor.service /etc/systemd/system/ib-trade-executor.service
 sudo systemctl daemon-reload
 sudo systemctl enable ib-trade-executor
 sudo systemctl restart ib-trade-executor
-sudo systemctl status ib-trade-executor --no-pager
 
-if [ -n "$IB_GATEWAY_INSTALLER_URL" ]; then
+# Only run installer if launcher doesn't exist
+if [ -n "$IB_GATEWAY_INSTALLER_URL" ] && [ ! -f "$IB_GATEWAY_LAUNCHER" ]; then
   installer_path="/tmp/ibgateway-installer"
   echo "Downloading IB Gateway installer from: $IB_GATEWAY_INSTALLER_URL"
-  wget -O "$installer_path" "$IB_GATEWAY_INSTALLER_URL"
+  if [ ! -f "$installer_path" ]; then
+    wget -O "$installer_path" "$IB_GATEWAY_INSTALLER_URL"
+  fi
   chmod +x "$installer_path"
 
   # Most IB Gateway installers are install4j-based and support -q and -dir.
@@ -132,9 +134,11 @@ chmod +x "$IB_GATEWAY_WRAPPER"
 sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$IB_GATEWAY_WRAPPER"
 
 sudo -u "$DEPLOY_USER" mkdir -p "$DEPLOY_HOME/.vnc"
-printf "%s\n" "$VNC_PASSWORD" | sudo -u "$DEPLOY_USER" vncpasswd -f > "$DEPLOY_HOME/.vnc/passwd"
-sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$DEPLOY_HOME/.vnc/passwd"
-chmod 600 "$DEPLOY_HOME/.vnc/passwd"
+if [ ! -f "$DEPLOY_HOME/.vnc/passwd" ]; then
+  printf "%s\n" "$VNC_PASSWORD" | sudo -u "$DEPLOY_USER" vncpasswd -f > "$DEPLOY_HOME/.vnc/passwd"
+  sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$DEPLOY_HOME/.vnc/passwd"
+  chmod 600 "$DEPLOY_HOME/.vnc/passwd"
+fi
 
 cat > "$DEPLOY_HOME/.vnc/xstartup" <<'EOF'
 #!/usr/bin/env bash
