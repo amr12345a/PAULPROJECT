@@ -78,7 +78,7 @@ curl -X POST "http://13.53.172.241/trade" \
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip nginx wine wine32 wine64 winetricks
+sudo apt install -y python3 python3-venv python3-pip nginx wine wine64 winetricks
 ```
 
 2. Copy project to server:

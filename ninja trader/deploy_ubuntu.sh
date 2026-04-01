@@ -28,13 +28,34 @@ sudo apt install -y \
   tigervnc-common \
   xfce4 \
   xfce4-goodies \
-  wine \
-  wine32 \
-  wine64 \
-  winetricks \
   wget \
   unzip \
   ca-certificates
+
+# Wine packaging varies by Ubuntu release; install with fallbacks instead of failing hard.
+if dpkg --print-architecture | grep -q '^amd64$'; then
+  sudo dpkg --add-architecture i386 || true
+  sudo apt update
+fi
+
+if apt-cache show wine >/dev/null 2>&1; then
+  sudo apt install -y wine || true
+fi
+
+if apt-cache show wine64 >/dev/null 2>&1; then
+  sudo apt install -y wine64 || true
+fi
+
+if apt-cache show wine32 >/dev/null 2>&1; then
+  sudo apt install -y wine32 || true
+elif apt-cache show libwine >/dev/null 2>&1; then
+  # Some distros replace wine32 with libwine.
+  sudo apt install -y libwine || true
+fi
+
+if apt-cache show winetricks >/dev/null 2>&1; then
+  sudo apt install -y winetricks || true
+fi
 
 sudo mkdir -p "$APP_DIR"
 sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$APP_DIR"
