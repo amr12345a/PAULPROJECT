@@ -18,6 +18,10 @@ if [ -z "${APP_DIR}" ] || [ "${APP_DIR}" = "/" ]; then
   exit 1
 fi
 
+# Recover from interrupted package operations before installing dependencies.
+sudo dpkg --configure -a || true
+sudo apt --fix-broken install -y || true
+
 sudo apt update
 sudo apt install -y \
   python3 \
