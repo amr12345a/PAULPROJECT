@@ -124,12 +124,13 @@ EOF
 sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$DEPLOY_HOME/.vnc/xstartup"
 chmod +x "$DEPLOY_HOME/.vnc/xstartup"
 
-# If URL points directly to an installer, pre-download it. If not, we open the page in VNC.
-if [ -n "$NT_INSTALLER_URL" ] && echo "$NT_INSTALLER_URL" | grep -Eiq '\.(exe|msi)(\?.*)?$'; then
-  if [ ! -f "${NT_DIR}/NinjaTraderInstaller.exe" ]; then
+# If URL points directly to an MSI or EXE, pre-download it into the VNC-accessible directory.
+if [ -n "$NT_INSTALLER_URL" ] && echo "$NT_INSTALLER_URL" | grep -Eiq '\.(msi|exe)(\?.*)?$'; then
+  installer_file="${NT_DIR}/NinjaTraderInstaller.$(echo "$NT_INSTALLER_URL" | grep -Eoi '\.(msi|exe)' | tr -d '.')"
+  if [ ! -f "$installer_file" ]; then
     echo "Downloading NinjaTrader installer from: $NT_INSTALLER_URL"
-    wget -O "${NT_DIR}/NinjaTraderInstaller.exe" "$NT_INSTALLER_URL"
-    chown "$DEPLOY_USER":"$DEPLOY_USER" "${NT_DIR}/NinjaTraderInstaller.exe"
+    wget -O "$installer_file" "$NT_INSTALLER_URL"
+    chown "$DEPLOY_USER":"$DEPLOY_USER" "$installer_file"
   fi
 fi
 
@@ -141,7 +142,7 @@ After=network.target
 [Service]
 Type=simple
 User=${DEPLOY_USER}
-ExecStartPre=-/usr/bin/vncserver -kill ${VNC_DISPLAY}
+ExecStartPre=/bin/bash -lc '/usr/bin/vncserver -list | grep -q "${VNC_DISPLAY}" && /usr/bin/vncserver -kill ${VNC_DISPLAY} || true'
 ExecStartPre=-/bin/rm -f /tmp/.X11-unix/X${VNC_DISPLAY#:} /tmp/.X${VNC_DISPLAY#:}-lock
 ExecStart=/usr/bin/vncserver ${VNC_DISPLAY} -fg -autokill no -AlwaysShared -DisconnectClients=0 -geometry ${VNC_GEOMETRY} -depth ${VNC_DEPTH} -localhost no -xstartup ${DEPLOY_HOME}/.vnc/xstartup
 ExecStop=/usr/bin/vncserver -kill ${VNC_DISPLAY}
@@ -160,11 +161,8 @@ sudo systemctl enable tigervnc
 sudo systemctl restart tigervnc
 sudo systemctl status tigervnc --no-pager
 
-# Open NinjaTrader download page in the VNC desktop for manual installation.
-if ! command -v firefox >/dev/null 2>&1 && ! command -v chromium-browser >/dev/null 2>&1; then
-  sudo apt install -y firefox || true
-fi
-sudo -u "$DEPLOY_USER" env DISPLAY="$VNC_DISPLAY" xdg-open "$NT_INSTALLER_URL" >/dev/null 2>&1 || true
+echo "NinjaTrader installer file is available in: ${NT_DIR}"
+echo "Open VNC and run the .msi installer manually from there."
 
 echo "=========================================="
 echo "Deployment complete!"

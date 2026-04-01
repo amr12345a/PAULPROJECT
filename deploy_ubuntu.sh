@@ -173,7 +173,7 @@ After=network.target
 [Service]
 Type=simple
 User=${DEPLOY_USER}
-ExecStartPre=-/usr/bin/vncserver -kill ${VNC_DISPLAY}
+ExecStartPre=/bin/bash -lc '/usr/bin/vncserver -list | grep -q "${VNC_DISPLAY}" && /usr/bin/vncserver -kill ${VNC_DISPLAY} || true'
 ExecStartPre=-/bin/rm -f /tmp/.X11-unix/X${VNC_DISPLAY#:} /tmp/.X${VNC_DISPLAY#:}-lock
 ExecStart=/usr/bin/vncserver ${VNC_DISPLAY} -fg -autokill no -AlwaysShared -DisconnectClients=0 -geometry ${VNC_GEOMETRY} -depth ${VNC_DEPTH} -localhost no -xstartup ${DEPLOY_HOME}/.vnc/xstartup
 ExecStop=/usr/bin/vncserver -kill ${VNC_DISPLAY}

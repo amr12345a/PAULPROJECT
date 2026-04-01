@@ -106,8 +106,8 @@ bash deploy_ubuntu.sh
 4. The deployment script will:
    - Create Python venv and install requirements
    - Set up TigerVNC on port 5901 (DISPLAY :1)
-  - Open NinjaTrader download URL in VNC for manual install
-  - Optionally pre-download installer only when `NT_INSTALLER_URL` points to `.exe` or `.msi`
+  - Download the NinjaTrader `.msi` installer into the VNC-accessible folder when `NT_INSTALLER_URL` is a direct installer link
+  - Leave the actual install step for you to run inside VNC
   - Install systemd service for `ninja-trader-executor` only
    - Configure nginx if PORT != 80
 
@@ -136,7 +136,8 @@ tail -f /var/log/syslog
 7. Access and configure:
 
 - **VNC Desktop (port 5901):** Connect with VNC client to `<server-ip>:5901` → password set in `.env`
-- **NinjaTrader Download:** The deploy script opens `NT_INSTALLER_URL` in the VNC desktop browser
+- **NinjaTrader Download:** The deploy script downloads the `.msi` into `/opt/ninjatrader` when `NT_INSTALLER_URL` is a direct installer URL
+- **NinjaTrader Install:** Open VNC and run the `.msi` file manually
 - **Signal Bridge Health:** `curl http://<server-ip>/health`
 - **Place trades:** `POST http://<server-ip>/trade` with signal payload
 
