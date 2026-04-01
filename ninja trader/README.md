@@ -106,9 +106,9 @@ bash deploy_ubuntu.sh
 4. The deployment script will:
    - Create Python venv and install requirements
    - Set up TigerVNC on port 5901 (DISPLAY :1)
-   - Download and install NinjaTrader (if NT_INSTALLER_URL provided)
-   - Start NinjaTrader in VNC (visible via remote desktop)
-   - Install systemd services for both ninja-trader-executor and ninjatrader
+  - Open NinjaTrader download URL in VNC for manual install
+  - Optionally pre-download installer only when `NT_INSTALLER_URL` points to `.exe` or `.msi`
+  - Install systemd service for `ninja-trader-executor` only
    - Configure nginx if PORT != 80
 
 5. AWS Security Group rules:
@@ -126,8 +126,8 @@ bash deploy_ubuntu.sh
 # Signal bridge service
 journalctl -u ninja-trader-executor -f
 
-# NinjaTrader service
-journalctl -u ninjatrader -f
+# VNC service
+journalctl -u tigervnc -f
 
 # System/VNC logs
 tail -f /var/log/syslog
@@ -136,7 +136,7 @@ tail -f /var/log/syslog
 7. Access and configure:
 
 - **VNC Desktop (port 5901):** Connect with VNC client to `<server-ip>:5901` → password set in `.env`
-- **NinjaTrader Window:** Should be visible in VNC display after systemd starts it
+- **NinjaTrader Download:** The deploy script opens `NT_INSTALLER_URL` in the VNC desktop browser
 - **Signal Bridge Health:** `curl http://<server-ip>/health`
 - **Place trades:** `POST http://<server-ip>/trade` with signal payload
 

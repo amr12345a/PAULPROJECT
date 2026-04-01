@@ -28,6 +28,7 @@ sudo apt install -y \
   tigervnc-common \
   xfce4 \
   xfce4-goodies \
+  xdg-utils \
   wget \
   unzip \
   ca-certificates
@@ -119,69 +120,14 @@ EOF
 sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$DEPLOY_HOME/.vnc/xstartup"
 chmod +x "$DEPLOY_HOME/.vnc/xstartup"
 
-# Create NinjaTrader launcher wrapper
-NT_LAUNCHER_WRAPPER="${NT_DIR}/run-ninjatrader.sh"
-cat > "$NT_LAUNCHER_WRAPPER" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-export HOME="${HOME:-/home/ubuntu}"
-export USER="${USER:-ubuntu}"
-export LOGNAME="${LOGNAME:-ubuntu}"
-export DISPLAY="${DISPLAY:-:1}"
-export WINEPREFIX="${WINEPREFIX:-${NT_DIR}/.wine}"
-
-: "${NT_DIR:?NT_DIR must be set by the systemd service}"
-
-NT_EXE="${NT_DIR}/NinjaTrader 8/bin/NinjaTrader.exe"
-NT_INSTALLER="${NT_DIR}/NinjaTraderInstaller.exe"
-
-if [ -f "$NT_EXE" ]; then
-  exec wine "$NT_EXE" "$@"
+# If URL points directly to an installer, pre-download it. If not, we open the page in VNC.
+if [ -n "$NT_INSTALLER_URL" ] && echo "$NT_INSTALLER_URL" | grep -Eiq '\.(exe|msi)(\?.*)?$'; then
+  if [ ! -f "${NT_DIR}/NinjaTraderInstaller.exe" ]; then
+    echo "Downloading NinjaTrader installer from: $NT_INSTALLER_URL"
+    wget -O "${NT_DIR}/NinjaTraderInstaller.exe" "$NT_INSTALLER_URL"
+    chown "$DEPLOY_USER":"$DEPLOY_USER" "${NT_DIR}/NinjaTraderInstaller.exe"
+  fi
 fi
-
-if [ -f "$NT_INSTALLER" ]; then
-  echo "NinjaTrader is not installed yet. Launching installer in VNC..."
-  exec wine start /unix "$NT_INSTALLER" "$@"
-fi
-
-echo "NinjaTrader executable and installer not found in ${NT_DIR}"
-sleep 300
-exit 1
-EOF
-
-chmod +x "$NT_LAUNCHER_WRAPPER"
-sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$NT_LAUNCHER_WRAPPER"
-
-# Download NinjaTrader installer if URL provided
-if [ -n "$NT_INSTALLER_URL" ] && [ ! -f "${NT_DIR}/NinjaTraderInstaller.exe" ]; then
-  echo "Downloading NinjaTrader installer from: $NT_INSTALLER_URL"
-  wget -O "${NT_DIR}/NinjaTraderInstaller.exe" "$NT_INSTALLER_URL"
-  chown "$DEPLOY_USER":"$DEPLOY_USER" "${NT_DIR}/NinjaTraderInstaller.exe"
-fi
-
-# Create NinjaTrader systemd service
-sudo tee /etc/systemd/system/ninjatrader.service >/dev/null <<NTEOF
-[Unit]
-Description=NinjaTrader 8 Platform
-After=network.target tigervnc.service
-Requires=tigervnc.service
-
-[Service]
-Type=simple
-User=${DEPLOY_USER}
-WorkingDirectory=${NT_DIR}
-Environment=HOME=${DEPLOY_HOME}
-Environment=NT_DIR=${NT_DIR}
-Environment=DISPLAY=${VNC_DISPLAY}
-Environment=WINEPREFIX=${NT_DIR}/.wine
-ExecStart=${NT_LAUNCHER_WRAPPER}
-Restart=always
-RestartSec=5
-StartLimitInterval=0
-
-[Install]
-WantedBy=multi-user.target
-NTEOF
 
 sudo tee /etc/systemd/system/tigervnc.service >/dev/null <<EOF
 [Unit]
@@ -193,7 +139,7 @@ Type=simple
 User=${DEPLOY_USER}
 ExecStartPre=-/usr/bin/vncserver -kill ${VNC_DISPLAY}
 ExecStartPre=-/bin/rm -f /tmp/.X11-unix/X${VNC_DISPLAY#:} /tmp/.X${VNC_DISPLAY#:}-lock
-ExecStart=/usr/bin/vncserver ${VNC_DISPLAY} -fg -geometry ${VNC_GEOMETRY} -depth ${VNC_DEPTH} -localhost no -xstartup ${DEPLOY_HOME}/.vnc/xstartup
+ExecStart=/usr/bin/vncserver ${VNC_DISPLAY} -fg -autokill no -AlwaysShared -DisconnectClients=0 -geometry ${VNC_GEOMETRY} -depth ${VNC_DEPTH} -localhost no -xstartup ${DEPLOY_HOME}/.vnc/xstartup
 ExecStop=/usr/bin/vncserver -kill ${VNC_DISPLAY}
 Restart=always
 RestartSec=3
@@ -210,10 +156,11 @@ sudo systemctl enable tigervnc
 sudo systemctl restart tigervnc
 sudo systemctl status tigervnc --no-pager
 
-sudo systemctl daemon-reload
-sudo systemctl enable ninjatrader
-sudo systemctl restart ninjatrader
-sudo systemctl status ninjatrader --no-pager || true
+# Open NinjaTrader download page in the VNC desktop for manual installation.
+if ! command -v firefox >/dev/null 2>&1 && ! command -v chromium-browser >/dev/null 2>&1; then
+  sudo apt install -y firefox || true
+fi
+sudo -u "$DEPLOY_USER" env DISPLAY="$VNC_DISPLAY" xdg-open "$NT_INSTALLER_URL" >/dev/null 2>&1 || true
 
 echo "=========================================="
 echo "Deployment complete!"
@@ -224,9 +171,8 @@ echo "  Password: Set in VNC_PASSWORD (.env)"
 echo "  Geometry: ${VNC_GEOMETRY}"
 echo ""
 echo "NinjaTrader:"
-echo "  Location: ${NT_DIR}"
-echo "  Launcher: ${NT_LAUNCHER_WRAPPER}"
-echo "  Service: ninjatrader (systemd)"
+echo "  Download URL opened in VNC: ${NT_INSTALLER_URL}"
+echo "  Installer directory: ${NT_DIR}"
 echo "  Display: ${VNC_DISPLAY}"
 echo ""
 echo "FastAPI Signal Bridge:"
@@ -234,7 +180,7 @@ echo "  Health: curl http://localhost/health"
 echo "  Trade endpoint: POST http://localhost/trade"
 echo ""
 echo "View service logs:"
-echo "  journalctl -u ninjatrader -f"
+echo "  journalctl -u tigervnc -f"
 echo "  journalctl -u ninja-trader-executor -f"
 echo "=========================================="
 

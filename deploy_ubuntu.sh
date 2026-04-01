@@ -171,7 +171,7 @@ Type=simple
 User=${DEPLOY_USER}
 ExecStartPre=-/usr/bin/vncserver -kill ${VNC_DISPLAY}
 ExecStartPre=-/bin/rm -f /tmp/.X11-unix/X${VNC_DISPLAY#:} /tmp/.X${VNC_DISPLAY#:}-lock
-ExecStart=/usr/bin/vncserver ${VNC_DISPLAY} -fg -geometry ${VNC_GEOMETRY} -depth ${VNC_DEPTH} -localhost no -xstartup ${DEPLOY_HOME}/.vnc/xstartup
+ExecStart=/usr/bin/vncserver ${VNC_DISPLAY} -fg -autokill no -AlwaysShared -DisconnectClients=0 -geometry ${VNC_GEOMETRY} -depth ${VNC_DEPTH} -localhost no -xstartup ${DEPLOY_HOME}/.vnc/xstartup
 ExecStop=/usr/bin/vncserver -kill ${VNC_DISPLAY}
 Restart=always
 RestartSec=3
