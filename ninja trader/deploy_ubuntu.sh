@@ -124,9 +124,47 @@ EOF
 sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$DEPLOY_HOME/.vnc/xstartup"
 chmod +x "$DEPLOY_HOME/.vnc/xstartup"
 
+# Create a self-contained launcher helper inside the NinjaTrader folder.
+NT_LAUNCHER_WRAPPER="${NT_DIR}/run-ninjatrader.sh"
+cat > "$NT_LAUNCHER_WRAPPER" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+NT_DIR="${NT_DIR:-/opt/ninjatrader}"
+export DISPLAY="${DISPLAY:-:1}"
+export HOME="${HOME:-/home/ubuntu}"
+export USER="${USER:-ubuntu}"
+export LOGNAME="${LOGNAME:-ubuntu}"
+export WINEPREFIX="${WINEPREFIX:-${NT_DIR}/.wine}"
+
+NT_EXE="${NT_DIR}/NinjaTrader 8/bin/NinjaTrader.exe"
+NT_INSTALLER_MSI="${NT_DIR}/NinjaTraderInstaller.msi"
+NT_INSTALLER_EXE="${NT_DIR}/NinjaTraderInstaller.exe"
+
+if [ -f "$NT_EXE" ]; then
+  exec wine "$NT_EXE" "$@"
+fi
+
+if [ -f "$NT_INSTALLER_MSI" ]; then
+  exec wine msiexec /i "$NT_INSTALLER_MSI" "$@"
+fi
+
+if [ -f "$NT_INSTALLER_EXE" ]; then
+  exec wine "$NT_INSTALLER_EXE" "$@"
+fi
+
+echo "NinjaTrader installer or executable not found in ${NT_DIR}"
+echo "Put the .msi in that folder and run it from VNC."
+sleep 300
+exit 1
+EOF
+chmod +x "$NT_LAUNCHER_WRAPPER"
+sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$NT_LAUNCHER_WRAPPER"
+
 # If URL points directly to an MSI or EXE, pre-download it into the VNC-accessible directory.
 if [ -n "$NT_INSTALLER_URL" ] && echo "$NT_INSTALLER_URL" | grep -Eiq '\.(msi|exe)(\?.*)?$'; then
-  installer_file="${NT_DIR}/NinjaTraderInstaller.$(echo "$NT_INSTALLER_URL" | grep -Eoi '\.(msi|exe)' | tr -d '.')"
+  installer_ext="$(echo "$NT_INSTALLER_URL" | grep -Eoi '\.(msi|exe)' | tr -d '.')"
+  installer_file="${NT_DIR}/NinjaTraderInstaller.${installer_ext}"
   if [ ! -f "$installer_file" ]; then
     echo "Downloading NinjaTrader installer from: $NT_INSTALLER_URL"
     wget -O "$installer_file" "$NT_INSTALLER_URL"
