@@ -121,45 +121,40 @@ chmod +x "$DEPLOY_HOME/.vnc/xstartup"
 
 # Create NinjaTrader launcher wrapper
 NT_LAUNCHER_WRAPPER="${NT_DIR}/run-ninjatrader.sh"
-cat > "$NT_LAUNCHER_WRAPPER" <<'NTEOF'
+cat > "$NT_LAUNCHER_WRAPPER" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 export HOME="${DEPLOY_HOME}"
 export USER="${DEPLOY_USER}"
 export LOGNAME="${DEPLOY_USER}"
-export DISPLAY=":1"
+export DISPLAY="${VNC_DISPLAY}"
 export WINEPREFIX="${NT_DIR}/.wine"
 
-# Start NinjaTrader via Wine (if installed as Windows executable)
-if [ -f "${NT_DIR}/NinjaTrader 8/bin/NinjaTrader.exe" ]; then
-  exec wine "${NT_DIR}/NinjaTrader 8/bin/NinjaTrader.exe" "$@"
-elif [ -f "${NT_DIR}/ninjatrader" ]; then
-  # Or if native binary exists
-  exec "${NT_DIR}/ninjatrader" "$@"
-else
-  echo "NinjaTrader executable not found in ${NT_DIR}"
-  sleep 300
-  exit 1
+NT_EXE="${NT_DIR}/NinjaTrader 8/bin/NinjaTrader.exe"
+NT_INSTALLER="${NT_DIR}/NinjaTraderInstaller.exe"
+
+if [ -f "$NT_EXE" ]; then
+  exec wine "$NT_EXE" "$@"
 fi
-NTEOF
+
+if [ -f "$NT_INSTALLER" ]; then
+  echo "NinjaTrader is not installed yet. Launching installer in VNC..."
+  exec wine start /unix "$NT_INSTALLER" "$@"
+fi
+
+echo "NinjaTrader executable and installer not found in ${NT_DIR}"
+sleep 300
+exit 1
+EOF
 
 chmod +x "$NT_LAUNCHER_WRAPPER"
 sudo chown "$DEPLOY_USER":"$DEPLOY_USER" "$NT_LAUNCHER_WRAPPER"
 
 # Download NinjaTrader installer if URL provided
-if [ -n "$NT_INSTALLER_URL" ] && [ ! -d "${NT_DIR}/NinjaTrader 8" ] && [ ! -f "${NT_DIR}/ninjatrader" ]; then
-  installer_path="/tmp/ninjatrader-installer"
-  if [ ! -f "$installer_path" ]; then
-    echo "Downloading NinjaTrader installer from: $NT_INSTALLER_URL"
-    wget -O "$installer_path" "$NT_INSTALLER_URL"
-  fi
-  
-  chmod +x "$installer_path"
-  echo "Running NinjaTrader installer..."
-  
-  if sudo -u "$DEPLOY_USER" bash "$installer_path" -q -dir "$NT_DIR" 2>/dev/null || [ -d "${NT_DIR}" ]; then
-    echo "NinjaTrader prepared in ${NT_DIR}"
-  fi
+if [ -n "$NT_INSTALLER_URL" ] && [ ! -f "${NT_DIR}/NinjaTraderInstaller.exe" ]; then
+  echo "Downloading NinjaTrader installer from: $NT_INSTALLER_URL"
+  wget -O "${NT_DIR}/NinjaTraderInstaller.exe" "$NT_INSTALLER_URL"
+  chown "$DEPLOY_USER":"$DEPLOY_USER" "${NT_DIR}/NinjaTraderInstaller.exe"
 fi
 
 # Create NinjaTrader systemd service
@@ -215,7 +210,7 @@ sudo systemctl status tigervnc --no-pager
 sudo systemctl daemon-reload
 sudo systemctl enable ninjatrader
 sudo systemctl restart ninjatrader
-sudo systemctl status ninjatrader --no-pager
+sudo systemctl status ninjatrader --no-pager || true
 
 echo "=========================================="
 echo "Deployment complete!"
