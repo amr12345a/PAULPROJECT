@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_USER="${SUDO_USER:-$USER}"
 DEPLOY_HOME="$(eval echo "~${DEPLOY_USER}")"
 NT_DIR="/opt/ninjatrader"
-NT_INSTALLER_URL="${NT_INSTALLER_URL:-}"
+NT_INSTALLER_URL="${NT_INSTALLER_URL:-https://download.ninjatrader.com/}"
 
 VNC_DISPLAY=":1"
 VNC_GEOMETRY="${VNC_GEOMETRY:-1920x1080}"
