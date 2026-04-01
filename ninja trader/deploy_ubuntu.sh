@@ -121,14 +121,16 @@ chmod +x "$DEPLOY_HOME/.vnc/xstartup"
 
 # Create NinjaTrader launcher wrapper
 NT_LAUNCHER_WRAPPER="${NT_DIR}/run-ninjatrader.sh"
-cat > "$NT_LAUNCHER_WRAPPER" <<EOF
+cat > "$NT_LAUNCHER_WRAPPER" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-export HOME="${DEPLOY_HOME}"
-export USER="${DEPLOY_USER}"
-export LOGNAME="${DEPLOY_USER}"
-export DISPLAY="${VNC_DISPLAY}"
-export WINEPREFIX="${NT_DIR}/.wine"
+export HOME="${HOME:-/home/ubuntu}"
+export USER="${USER:-ubuntu}"
+export LOGNAME="${LOGNAME:-ubuntu}"
+export DISPLAY="${DISPLAY:-:1}"
+export WINEPREFIX="${WINEPREFIX:-${NT_DIR}/.wine}"
+
+: "${NT_DIR:?NT_DIR must be set by the systemd service}"
 
 NT_EXE="${NT_DIR}/NinjaTrader 8/bin/NinjaTrader.exe"
 NT_INSTALLER="${NT_DIR}/NinjaTraderInstaller.exe"
@@ -169,6 +171,7 @@ Type=simple
 User=${DEPLOY_USER}
 WorkingDirectory=${NT_DIR}
 Environment=HOME=${DEPLOY_HOME}
+Environment=NT_DIR=${NT_DIR}
 Environment=DISPLAY=${VNC_DISPLAY}
 Environment=WINEPREFIX=${NT_DIR}/.wine
 ExecStart=${NT_LAUNCHER_WRAPPER}
