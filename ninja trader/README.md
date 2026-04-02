@@ -54,7 +54,7 @@ cp .env.example .env
 Example with simulated account:
 
 ```bash
-NT_STRATEGY_URL=http://127.0.0.1:8000/api/v1/signal
+NT_STRATEGY_URL=http://YOUR_NINJATRADER_HOST_IP:8000/api/v1/signal
 NT_ACCOUNT=Sim101
 NT_INSTRUMENT_PREFIX=Z2
 ```
@@ -95,7 +95,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 4. Windows Firewall:
 
 - Allow inbound `80/tcp` or whatever port you set in `.env`.
-- If the bridge only serves your local NinjaTrader instance, keep it bound to `127.0.0.1` and do not open the port publicly.
+- If the bridge only serves your local NinjaTrader instance, keep it on a private IP and do not open the port publicly.
 
 5. Start or verify the bridge:
 
@@ -128,7 +128,7 @@ protected override void OnBarClose()
 }
 
 // Example: OnReceiveSignal endpoint
-// Listen on http://127.0.0.1:8000/api/v1/signal
+// Listen on http://YOUR_NINJATRADER_HOST_IP:8000/api/v1/signal
 // Expected JSON:
 // {
 //   "instrument": "ES Z2",

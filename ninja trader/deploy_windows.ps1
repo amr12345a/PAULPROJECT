@@ -106,4 +106,4 @@ Write-Host ''
 Write-Host 'Deployment complete.'
 Write-Host "Install directory: $InstallDir"
 Write-Host "Start manually: powershell.exe -ExecutionPolicy Bypass -File `"$InstallDir\start_windows.ps1`""
-Write-Host "Health check: curl http://127.0.0.1:$Port/health"
+Write-Host "Health check: curl http://localhost:$Port/health"

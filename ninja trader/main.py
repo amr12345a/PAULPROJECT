@@ -35,7 +35,7 @@ class NinjaTraderConnectionConfig:
 
 @dataclass
 class Settings:
-    nt_strategy_url: str = os.getenv("NT_STRATEGY_URL", "http://127.0.0.1:8000/api/v1/signal")
+    nt_strategy_url: str = os.getenv("NT_STRATEGY_URL", "http://YOUR_NINJATRADER_HOST_IP:8000/api/v1/signal")
     nt_api_key: str = os.getenv("NT_API_KEY", "")
     nt_account: str = os.getenv("NT_ACCOUNT", "")
     nt_instrument_prefix: str = os.getenv("NT_INSTRUMENT_PREFIX", "")
