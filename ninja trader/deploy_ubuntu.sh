@@ -137,6 +137,21 @@ export USER="${USER:-ubuntu}"
 export LOGNAME="${LOGNAME:-ubuntu}"
 export WINEPREFIX="${WINEPREFIX:-${NT_DIR}/.wine}"
 
+if ! command -v wine >/dev/null 2>&1; then
+  echo "wine is not installed. Install wine, wine64, and the needed 32-bit support, then retry."
+  exit 1
+fi
+
+mkdir -p "$WINEPREFIX"
+
+if [ ! -f "$WINEPREFIX/system.reg" ]; then
+  wineboot -u >/tmp/ninjatrader-wineboot.log 2>&1 || {
+    cat /tmp/ninjatrader-wineboot.log
+    echo "Wine prefix initialization failed. Check that wine and its dependencies are installed."
+    exit 1
+  }
+fi
+
 NT_EXE="${NT_DIR}/NinjaTrader 8/bin/NinjaTrader.exe"
 NT_INSTALLER_MSI="${NT_DIR}/NinjaTraderInstaller.msi"
 NT_INSTALLER_EXE="${NT_DIR}/NinjaTraderInstaller.exe"
