@@ -56,6 +56,9 @@ Copy-Item .env.example .env
 - `NT_INSTRUMENT_PREFIX`: Optional contract suffix to append, for example `Z2` to convert `ES` into `ES Z2`.
 - `NT_API_KEY`: Optional Bearer token if your strategy endpoint requires auth.
 - `DEFAULT_QUANTITY`: Order size sent for each signal.
+- `NT_SIGNAL_TIMEOUT_SECONDS`: Timeout (seconds) for the bridge -> NinjaTrader HTTP call.
+- `NT_SIGNAL_RETRY_ATTEMPTS`: Number of attempts for transient connection timeouts/unreachable responses.
+- `NT_SIGNAL_RETRY_DELAY_SECONDS`: Delay between retry attempts.
 - `PORT`: Keep `8080` for public deployment, or change it if you know the new port is open and matched everywhere.
 
 5. Start the bridge:

@@ -3,6 +3,8 @@ import time
 import json
 import threading
 import shutil
+import logging
+import socket
 from dataclasses import dataclass
 from pathlib import Path
 from urllib import error as urllib_error
@@ -23,6 +25,8 @@ def ensure_env_file() -> None:
 
 ensure_env_file()
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -47,6 +51,9 @@ class Settings:
     default_quantity: int = int(os.getenv("DEFAULT_QUANTITY", "1"))
     nt_order_signal_mode: str = os.getenv("NT_ORDER_SIGNAL_MODE", "market").lower()
     order_status_wait_seconds: float = float(os.getenv("ORDER_STATUS_WAIT_SECONDS", "1.0"))
+    nt_signal_timeout_seconds: float = float(os.getenv("NT_SIGNAL_TIMEOUT_SECONDS", "8.0"))
+    nt_signal_retry_attempts: int = int(os.getenv("NT_SIGNAL_RETRY_ATTEMPTS", "2"))
+    nt_signal_retry_delay_seconds: float = float(os.getenv("NT_SIGNAL_RETRY_DELAY_SECONDS", "0.4"))
     nt_heartbeat_enabled: bool = os.getenv("NT_HEARTBEAT_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -88,6 +95,23 @@ class NinjaTraderExecutor:
         with urllib_request.urlopen(req, timeout=timeout) as response:
             return response.status, response.read().decode("utf-8", errors="replace")
 
+    def _send_with_retries(self, payload: dict, timeout: float) -> tuple[int, str]:
+        attempts = max(self.settings.nt_signal_retry_attempts, 1)
+        retry_delay = max(self.settings.nt_signal_retry_delay_seconds, 0.0)
+        last_error: Exception | None = None
+
+        for attempt in range(1, attempts + 1):
+            try:
+                return self._send_signal(payload=payload, timeout=timeout)
+            except (urllib_error.URLError, TimeoutError, socket.timeout) as exc:
+                last_error = exc
+                if attempt >= attempts:
+                    break
+                time.sleep(retry_delay)
+
+        assert last_error is not None
+        raise last_error
+
     def place_market_order(self, ticker: str, action: str, quantity: int) -> dict:
         with self._lock:
             now = time.time()
@@ -106,9 +130,13 @@ class NinjaTraderExecutor:
             }
 
             try:
-                status_code, response_text = self._send_signal(
+                status_code, response_text = self._send_with_retries(
                     payload=payload,
-                    timeout=max(self.settings.order_status_wait_seconds, 0.5),
+                    timeout=max(
+                        self.settings.nt_signal_timeout_seconds,
+                        self.settings.order_status_wait_seconds,
+                        0.5,
+                    ),
                 )
             except urllib_error.HTTPError as exc:
                 body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
@@ -187,6 +215,7 @@ def trade(payload: TradeRequest) -> dict:
             quantity=qty,
         )
     except Exception as exc:
+        logger.exception("Failed to place NinjaTrader order for payload: %s", payload.model_dump())
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Failed to place NinjaTrader order: {exc}",
