@@ -218,32 +218,47 @@ NT_INSTALLER_EXE="${NT_DIR}/NinjaTraderInstaller.exe"
 
 is_valid_installer_file() {
   local f="$1"
-  [ -f "$f" ] || return 1
+  echo "[installer-check] Testing: $f" >&2
+  [ -f "$f" ] || { echo "[installer-check] Not a file" >&2; return 1; }
 
   case "$(printf '%s' "$f" | tr '[:upper:]' '[:lower:]')" in
-    *.msi|*.exe) ;;
-    *) return 1 ;;
+    *.msi|*.exe) echo "[installer-check] Valid extension" >&2 ;;
+    *) echo "[installer-check] Invalid extension" >&2; return 1 ;;
   esac
 
-  if command -v file >/dev/null 2>&1 && file "$f" | grep -Eiq 'html|xml|text'; then
-    return 1
+  if command -v file >/dev/null 2>&1; then
+    local ftype
+    ftype="$(file "$f" 2>&1)"
+    if echo "$ftype" | grep -Eiq 'html|xml|text|empty'; then
+      echo "[installer-check] File type rejected: $ftype" >&2
+      return 1
+    fi
   fi
 
+  echo "[installer-check] VALID" >&2
   return 0
 }
 
 discover_installer_file() {
+  echo "[discover] Looking in: $NT_DIR" >&2
   local found
-  found="$(find "$NT_DIR" -maxdepth 2 -type f \( -iname '*.msi' -o -iname '*.exe' \) | head -n 1 || true)"
-  if [ -n "$found" ] && is_valid_installer_file "$found"; then
-    printf '%s\n' "$found"
-    return 0
+  found="$(find "$NT_DIR" -maxdepth 2 -type f \( -iname '*.msi' -o -iname '*.exe' \) 2>/dev/null | head -n 1 || true)"
+  if [ -n "$found" ]; then
+    echo "[discover] Found candidate: $found" >&2
+    if is_valid_installer_file "$found"; then
+      echo "[discover] SUCCESS: $found" >&2
+      printf '%s\n' "$found"
+      return 0
+    fi
   fi
+  echo "[discover] No valid installer found" >&2
   return 1
 }
 
 download_direct_installer() {
+  echo "[download] NT_INSTALLER_URL=$NT_INSTALLER_URL" >&2
   if ! echo "$NT_INSTALLER_URL" | grep -Eiq '\.(msi|exe)(\?.*)?$'; then
+    echo "[download] URL does not end with .msi or .exe, skipping" >&2
     return 1
   fi
 
@@ -252,19 +267,23 @@ download_direct_installer() {
   installer_file="${NT_DIR}/NinjaTraderInstaller.${installer_ext}"
   tmp_file="${installer_file}.download"
 
+  echo "[download] Downloading to: $tmp_file" >&2
   if command -v curl >/dev/null 2>&1; then
-    curl -fL "$NT_INSTALLER_URL" -o "$tmp_file"
+    curl -fL "$NT_INSTALLER_URL" -o "$tmp_file" 2>&1 | sed 's/^/[curl] /' >&2
   else
-    wget -O "$tmp_file" "$NT_INSTALLER_URL"
+    wget -O "$tmp_file" "$NT_INSTALLER_URL" 2>&1 | sed 's/^/[wget] /' >&2
   fi
 
   if ! is_valid_installer_file "$tmp_file"; then
+    echo "[download] Downloaded file failed validation, deleting" >&2
     rm -f "$tmp_file"
     return 1
   fi
 
+  echo "[download] Moving to: $installer_file" >&2
   mv -f "$tmp_file" "$installer_file"
   printf '%s\n' "$installer_file"
+  echo "[download] SUCCESS" >&2
   return 0
 }
 
@@ -278,6 +297,7 @@ if [ -f "$NT_EXE" ]; then
 fi
 
 if [ -f "$NT_INSTALLER_MSI" ] && is_valid_installer_file "$NT_INSTALLER_MSI"; then
+  echo "[launcher] Using existing: $NT_INSTALLER_MSI" >&2
   if ! have_display; then
     echo "NinjaTrader installer requires a GUI display, but DISPLAY=${DISPLAY} is not available."
     echo "Start VNC first: sudo systemctl restart tigervnc"
@@ -287,6 +307,7 @@ if [ -f "$NT_INSTALLER_MSI" ] && is_valid_installer_file "$NT_INSTALLER_MSI"; th
 fi
 
 if [ -f "$NT_INSTALLER_EXE" ] && is_valid_installer_file "$NT_INSTALLER_EXE"; then
+  echo "[launcher] Using existing: $NT_INSTALLER_EXE" >&2
   if ! have_display; then
     echo "NinjaTrader installer requires a GUI display, but DISPLAY=${DISPLAY} is not available."
     echo "Start VNC first: sudo systemctl restart tigervnc"
@@ -295,34 +316,57 @@ if [ -f "$NT_INSTALLER_EXE" ] && is_valid_installer_file "$NT_INSTALLER_EXE"; th
   exec "$WINE_BIN" "$NT_INSTALLER_EXE" "$@"
 fi
 
-if installer_path="$(download_direct_installer 2>/tmp/ninjatrader-installer-download.log)"; then
+echo "[launcher] No pre-existing installer found. Attempting runtime discovery/download..." >&2
+
+if installer_path="$(download_direct_installer 2>&1)"; then
+  echo "[launcher] Downloaded installer: $installer_path" >&2
   if ! have_display; then
     echo "Installer was downloaded but DISPLAY=${DISPLAY} is not available."
     echo "Start VNC first: sudo systemctl restart tigervnc"
     exit 1
   fi
   if echo "$installer_path" | grep -Eiq '\.msi$'; then
+    echo "[launcher] Launching via msiexec" >&2
     exec "$WINE_BIN" msiexec /i "$installer_path" "$@"
   fi
+  echo "[launcher] Launching .exe directly" >&2
   exec "$WINE_BIN" "$installer_path" "$@"
 fi
 
-if installer_path="$(discover_installer_file)"; then
+if installer_path="$(discover_installer_file 2>&1)"; then
+  echo "[launcher] Discovered installer: $installer_path" >&2
   if ! have_display; then
     echo "NinjaTrader installer requires a GUI display, but DISPLAY=${DISPLAY} is not available."
     echo "Start VNC first: sudo systemctl restart tigervnc"
     exit 1
   fi
   if echo "$installer_path" | grep -Eiq '\.msi$'; then
+    echo "[launcher] Launching via msiexec" >&2
     exec "$WINE_BIN" msiexec /i "$installer_path" "$@"
   fi
+  echo "[launcher] Launching .exe directly" >&2
   exec "$WINE_BIN" "$installer_path" "$@"
 fi
 
-echo "NinjaTrader installer or executable not found in ${NT_DIR}"
-echo "Set NT_INSTALLER_URL to a direct .msi/.exe URL (current: ${NT_INSTALLER_URL})"
-echo "Or place the installer file under ${NT_DIR}"
-sleep 300
+echo ""
+echo "========== INSTALLER NOT FOUND =========="
+echo "NinjaTrader installer or executable was not found and could not be downloaded."
+echo ""
+echo "To fix this, you have two options:"
+echo ""
+echo "Option 1: Set NT_INSTALLER_URL to a direct download link (.msi or .exe)"
+echo "  Edit /opt/ninja-trader-executor/.env and set:"
+echo "  NT_INSTALLER_URL=https://example.com/NinjaTraderInstaller.msi"
+echo "  Then rerun: bash /opt/ninja-trader-executor/deploy_ubuntu.sh"
+echo ""
+echo "Option 2: Place installer manually into /opt/ninjatrader"
+echo "  cp /path/to/NinjaTraderInstaller.msi /opt/ninjatrader/"
+echo "  Then rerun: bash /opt/ninja-trader-executor/deploy_ubuntu.sh"
+echo ""
+echo "Current NT_INSTALLER_URL: ${NT_INSTALLER_URL}"
+echo "NT_DIR: ${NT_DIR}"
+echo "=========================================="
+sleep 10
 exit 1
 EOF
 chmod +x "$NT_LAUNCHER_WRAPPER"
