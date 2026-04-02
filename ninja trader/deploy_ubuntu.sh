@@ -184,6 +184,54 @@ run_wine_cmd() {
   return 1
 }
 
+ensure_wine_prereqs() {
+  if [ -n "${WINE_PREREQS_DONE:-}" ]; then
+    return 0
+  fi
+
+  if [ ! -x "$(command -v winetricks 2>/dev/null || true)" ]; then
+    echo "[prereq] winetricks not found; skipping .NET bootstrap" >&2
+    WINE_PREREQS_DONE=1
+    return 0
+  fi
+
+  if [ -f "$WINEPREFIX/.dotnet48.installed" ]; then
+    echo "[prereq] .NET 4.8 marker already present" >&2
+    WINE_PREREQS_DONE=1
+    return 0
+  fi
+
+  echo "[prereq] Installing .NET Framework 4.8 into Wine prefix" >&2
+  run_wine_cmd winetricks -q dotnet48 >/tmp/ninjatrader-winetricks.log 2>&1 || {
+    cat /tmp/ninjatrader-winetricks.log
+    echo "[prereq] .NET 4.8 bootstrap failed" >&2
+    return 1
+  }
+
+  touch "$WINEPREFIX/.dotnet48.installed"
+  echo "[prereq] .NET 4.8 installation complete" >&2
+  WINE_PREREQS_DONE=1
+}
+
+launch_installer_file() {
+  local installer_file="$1"
+  shift || true
+  local wine_path
+
+  wine_path="$(to_wine_path "$installer_file")"
+  echo "[launcher] Wine path: $wine_path" >&2
+
+  if is_msi_payload "$installer_file"; then
+    echo "[launcher] Detected MSI payload; ensuring .NET prereqs before msiexec" >&2
+    ensure_wine_prereqs
+    echo "[launcher] Detected MSI payload; using msiexec" >&2
+    exec "$WINE_BIN" msiexec /i "$wine_path" "$@"
+  fi
+
+  echo "[launcher] Launching directly with Wine" >&2
+  exec "$WINE_BIN" "$wine_path" "$@"
+}
+
 if [ ! -f "$WINEPREFIX/system.reg" ]; then
   run_wine_cmd wineboot -u >/tmp/ninjatrader-wineboot.log 2>&1 || {
     cat /tmp/ninjatrader-wineboot.log
@@ -304,22 +352,6 @@ is_msi_payload() {
   else
     return 1
   fi
-}
-
-launch_installer_file() {
-  local installer_file="$1"
-  local wine_path
-
-  wine_path="$(to_wine_path "$installer_file")"
-  echo "[launcher] Wine path: $wine_path" >&2
-
-  if is_msi_payload "$installer_file"; then
-    echo "[launcher] Detected MSI payload; using msiexec" >&2
-    exec "$WINE_BIN" msiexec /i "$wine_path" "$@"
-  fi
-
-  echo "[launcher] Launching directly with Wine" >&2
-  exec "$WINE_BIN" "$wine_path" "$@"
 }
 
 if [ -f "$NT_EXE" ]; then
