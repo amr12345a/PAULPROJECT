@@ -45,23 +45,24 @@ if dpkg --print-architecture | grep -q '^amd64$'; then
   sudo apt update
 fi
 
-if apt-cache show wine >/dev/null 2>&1; then
-  sudo apt install -y wine || true
+WINE_PKGS=()
+for pkg in wine wine64 wine32 winetricks libwine libwine:i386 libc6:i386; do
+  if apt-cache show "$pkg" >/dev/null 2>&1; then
+    WINE_PKGS+=("$pkg")
+  fi
+done
+
+if [ ${#WINE_PKGS[@]} -eq 0 ]; then
+  echo "No Wine packages were found in apt repositories on this host."
+  echo "Enable Ubuntu repositories (main/universe/multiverse) or WineHQ, then rerun deploy."
+  exit 1
 fi
 
-if apt-cache show wine64 >/dev/null 2>&1; then
-  sudo apt install -y wine64 || true
-fi
+sudo apt install -y --install-recommends "${WINE_PKGS[@]}"
 
-if apt-cache show wine32 >/dev/null 2>&1; then
-  sudo apt install -y wine32 || true
-elif apt-cache show libwine >/dev/null 2>&1; then
-  # Some distros replace wine32 with libwine.
-  sudo apt install -y libwine || true
-fi
-
-if apt-cache show winetricks >/dev/null 2>&1; then
-  sudo apt install -y winetricks || true
+if ! command -v wine >/dev/null 2>&1 && ! command -v wine64 >/dev/null 2>&1; then
+  echo "Wine installation appears incomplete: neither 'wine' nor 'wine64' is available in PATH."
+  exit 1
 fi
 
 sudo mkdir -p "$APP_DIR"
@@ -149,7 +150,7 @@ fi
 export WINEARCH="${WINEARCH:-win64}"
 export WINEPREFIX="${WINEPREFIX:-${NT_DIR}/.wine}"
 
-WINE_BIN="$(command -v wine64 2>/dev/null || command -v wine 2>/dev/null || true)"
+WINE_BIN="$(command -v wine 2>/dev/null || command -v wine64 2>/dev/null || true)"
 if [ -z "$WINE_BIN" ]; then
   echo "wine is not installed. Install wine, wine64, and the needed 32-bit support, then retry."
   exit 1
