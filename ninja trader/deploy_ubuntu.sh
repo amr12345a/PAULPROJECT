@@ -229,6 +229,7 @@ is_valid_installer_file() {
   if command -v file >/dev/null 2>&1; then
     local ftype
     ftype="$(file "$f" 2>&1)"
+    echo "[installer-check] Type: $ftype" >&2
     if echo "$ftype" | grep -Eiq 'html|xml|text|empty'; then
       echo "[installer-check] File type rejected: $ftype" >&2
       return 1
@@ -297,6 +298,30 @@ log_file_type() {
   fi
 }
 
+is_msi_payload() {
+  if command -v file >/dev/null 2>&1; then
+    file "$1" 2>/dev/null | grep -Eiq 'MSI Installer|Installation Database'
+  else
+    return 1
+  fi
+}
+
+launch_installer_file() {
+  local installer_file="$1"
+  local wine_path
+
+  wine_path="$(to_wine_path "$installer_file")"
+  echo "[launcher] Wine path: $wine_path" >&2
+
+  if is_msi_payload "$installer_file"; then
+    echo "[launcher] Detected MSI payload; using msiexec" >&2
+    exec "$WINE_BIN" msiexec /i "$wine_path" "$@"
+  fi
+
+  echo "[launcher] Launching directly with Wine" >&2
+  exec "$WINE_BIN" "$wine_path" "$@"
+}
+
 if [ -f "$NT_EXE" ]; then
   if ! have_display; then
     echo "NinjaTrader requires a GUI display, but DISPLAY=${DISPLAY} is not available."
@@ -314,9 +339,7 @@ if [ -f "$NT_INSTALLER_MSI" ] && is_valid_installer_file "$NT_INSTALLER_MSI"; th
     echo "Start VNC first: sudo systemctl restart tigervnc"
     exit 1
   fi
-  wine_path="$(to_wine_path "$NT_INSTALLER_MSI")"
-  echo "[launcher] Wine path: $wine_path" >&2
-  exec "$WINE_BIN" msiexec /i "$wine_path" "$@"
+  launch_installer_file "$NT_INSTALLER_MSI" "$@"
 fi
 
 if [ -f "$NT_INSTALLER_EXE" ] && is_valid_installer_file "$NT_INSTALLER_EXE"; then
@@ -327,9 +350,7 @@ if [ -f "$NT_INSTALLER_EXE" ] && is_valid_installer_file "$NT_INSTALLER_EXE"; th
     echo "Start VNC first: sudo systemctl restart tigervnc"
     exit 1
   fi
-  wine_path="$(to_wine_path "$NT_INSTALLER_EXE")"
-  echo "[launcher] Wine path: $wine_path" >&2
-  exec "$WINE_BIN" "$wine_path" "$@"
+  launch_installer_file "$NT_INSTALLER_EXE" "$@"
 fi
 
 echo "[launcher] No pre-existing installer found. Attempting runtime discovery/download..." >&2
@@ -342,14 +363,7 @@ if installer_path="$(download_direct_installer 2>&1)"; then
     echo "Start VNC first: sudo systemctl restart tigervnc"
     exit 1
   fi
-  wine_path="$(to_wine_path "$installer_path")"
-  echo "[launcher] Wine path: $wine_path" >&2
-  if echo "$installer_path" | grep -Eiq '\.msi$'; then
-    echo "[launcher] Launching via msiexec" >&2
-    exec "$WINE_BIN" msiexec /i "$wine_path" "$@"
-  fi
-  echo "[launcher] Launching .exe directly" >&2
-  exec "$WINE_BIN" "$wine_path" "$@"
+  launch_installer_file "$installer_path" "$@"
 fi
 
 if installer_path="$(discover_installer_file 2>&1)"; then
@@ -360,14 +374,7 @@ if installer_path="$(discover_installer_file 2>&1)"; then
     echo "Start VNC first: sudo systemctl restart tigervnc"
     exit 1
   fi
-  wine_path="$(to_wine_path "$installer_path")"
-  echo "[launcher] Wine path: $wine_path" >&2
-  if echo "$installer_path" | grep -Eiq '\.msi$'; then
-    echo "[launcher] Launching via msiexec" >&2
-    exec "$WINE_BIN" msiexec /i "$wine_path" "$@"
-  fi
-  echo "[launcher] Launching .exe directly" >&2
-  exec "$WINE_BIN" "$wine_path" "$@"
+  launch_installer_file "$installer_path" "$@"
 fi
 
 echo ""
