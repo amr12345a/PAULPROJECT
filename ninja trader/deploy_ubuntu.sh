@@ -135,9 +135,11 @@ export DISPLAY="${DISPLAY:-:1}"
 export HOME="${HOME:-/home/ubuntu}"
 export USER="${USER:-ubuntu}"
 export LOGNAME="${LOGNAME:-ubuntu}"
+export WINEARCH="${WINEARCH:-win64}"
 export WINEPREFIX="${WINEPREFIX:-${NT_DIR}/.wine}"
 
-if ! command -v wine >/dev/null 2>&1; then
+WINE_BIN="$(command -v wine64 2>/dev/null || command -v wine 2>/dev/null || true)"
+if [ -z "$WINE_BIN" ]; then
   echo "wine is not installed. Install wine, wine64, and the needed 32-bit support, then retry."
   exit 1
 fi
@@ -145,7 +147,7 @@ fi
 mkdir -p "$WINEPREFIX"
 
 if [ ! -f "$WINEPREFIX/system.reg" ]; then
-  wineboot -u >/tmp/ninjatrader-wineboot.log 2>&1 || {
+  "$WINE_BIN" wineboot -u >/tmp/ninjatrader-wineboot.log 2>&1 || {
     cat /tmp/ninjatrader-wineboot.log
     echo "Wine prefix initialization failed. Check that wine and its dependencies are installed."
     exit 1
@@ -157,15 +159,15 @@ NT_INSTALLER_MSI="${NT_DIR}/NinjaTraderInstaller.msi"
 NT_INSTALLER_EXE="${NT_DIR}/NinjaTraderInstaller.exe"
 
 if [ -f "$NT_EXE" ]; then
-  exec wine "$NT_EXE" "$@"
+  exec "$WINE_BIN" "$NT_EXE" "$@"
 fi
 
 if [ -f "$NT_INSTALLER_MSI" ]; then
-  exec wine msiexec /i "$NT_INSTALLER_MSI" "$@"
+  exec "$WINE_BIN" msiexec /i "$NT_INSTALLER_MSI" "$@"
 fi
 
 if [ -f "$NT_INSTALLER_EXE" ]; then
-  exec wine "$NT_INSTALLER_EXE" "$@"
+  exec "$WINE_BIN" "$NT_INSTALLER_EXE" "$@"
 fi
 
 echo "NinjaTrader installer or executable not found in ${NT_DIR}"
