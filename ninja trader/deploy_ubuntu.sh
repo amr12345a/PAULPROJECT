@@ -184,6 +184,32 @@ run_wine_cmd() {
   return 1
 }
 
+run_with_session() {
+  if command -v dbus-run-session >/dev/null 2>&1; then
+    dbus-run-session -- "$@"
+    return $?
+  fi
+
+  if command -v dbus-launch >/dev/null 2>&1; then
+    dbus-launch --exit-with-session "$@"
+    return $?
+  fi
+
+  "$@"
+}
+
+exec_with_session() {
+  if command -v dbus-run-session >/dev/null 2>&1; then
+    exec dbus-run-session -- "$@"
+  fi
+
+  if command -v dbus-launch >/dev/null 2>&1; then
+    exec dbus-launch --exit-with-session "$@"
+  fi
+
+  exec "$@"
+}
+
 ensure_wine_prereqs() {
   if [ -n "${WINE_PREREQS_DONE:-}" ]; then
     return 0
@@ -203,7 +229,7 @@ ensure_wine_prereqs() {
   fi
 
   echo "[prereq] Installing .NET Framework 4.8 into Wine prefix" >&2
-  WINEPREFIX="$WINEPREFIX" DISPLAY="$DISPLAY" HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" "$WINETRICKS_BIN" -q dotnet48 >/tmp/ninjatrader-winetricks.log 2>&1 || {
+  WINEPREFIX="$WINEPREFIX" DISPLAY="$DISPLAY" HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" run_with_session "$WINETRICKS_BIN" -q dotnet48 >/tmp/ninjatrader-winetricks.log 2>&1 || {
     cat /tmp/ninjatrader-winetricks.log
     echo "[prereq] .NET 4.8 bootstrap failed" >&2
     return 1
@@ -226,11 +252,11 @@ launch_installer_file() {
     echo "[launcher] Detected MSI payload; ensuring .NET prereqs before msiexec" >&2
     ensure_wine_prereqs
     echo "[launcher] Detected MSI payload; using msiexec" >&2
-    exec "$WINE_BIN" msiexec /i "$wine_path" "$@"
+    exec_with_session "$WINE_BIN" msiexec /i "$wine_path" "$@"
   fi
 
   echo "[launcher] Launching directly with Wine" >&2
-  exec "$WINE_BIN" "$wine_path" "$@"
+  exec_with_session "$WINE_BIN" "$wine_path" "$@"
 }
 
 if [ ! -f "$WINEPREFIX/system.reg" ]; then
