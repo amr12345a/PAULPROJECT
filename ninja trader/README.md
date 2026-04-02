@@ -3,7 +3,7 @@
 HTTP service that receives trade signals and forwards them to a NinjaTrader NinjaScript strategy endpoint. This subproject is now Windows-first: install and run it on the same Windows host as NinjaTrader, or on any Windows machine that can reach your NinjaScript HTTP endpoint.
 
 ## Request format
-1. Install Python 3.11+ on Windows.
+1. Install Python 3.12 or 3.13 on Windows. Python 3.14 currently forces a source build of `pydantic-core` for this project and will fail unless Rust/Cargo is installed.
 
 2. Create and activate environment:
 `POST /trade`

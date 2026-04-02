@@ -17,6 +17,32 @@ $filesToCopy = @(
     'start_windows.ps1'
 )
 
+function Get-SupportedPythonLauncher {
+    $candidates = @(
+        @{ Exe = 'py'; Args = @('-3.13') },
+        @{ Exe = 'py'; Args = @('-3.12') },
+        @{ Exe = 'python'; Args = @() },
+        @{ Exe = 'python3'; Args = @() }
+    )
+
+    foreach ($candidate in $candidates) {
+        if (-not (Get-Command $candidate.Exe -ErrorAction SilentlyContinue)) {
+            continue
+        }
+
+        $probe = & $candidate.Exe @($candidate.Args + @('-c', 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')) 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            continue
+        }
+
+        if ($probe -match '^3\.(12|13)$') {
+            return $candidate
+        }
+    }
+
+    throw 'Python 3.12 or 3.13 is required. Python 3.14 forces a source build of pydantic-core, which needs Rust/Cargo.'
+}
+
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 
 foreach ($file in $filesToCopy) {
@@ -36,20 +62,10 @@ if (-not (Test-Path (Join-Path $InstallDir '.env'))) {
 }
 
 $pythonCmd = $null
-if (Get-Command py -ErrorAction SilentlyContinue) {
-    $pythonCmd = 'py'
-} elseif (Get-Command python -ErrorAction SilentlyContinue) {
-    $pythonCmd = 'python'
-} else {
-    throw 'Python was not found. Install Python 3.11+ and rerun this script.'
-}
+$pythonCmd = Get-SupportedPythonLauncher
 
 if (-not (Test-Path (Join-Path $InstallDir '.venv'))) {
-    if ($pythonCmd -eq 'py') {
-        & py -3 -m venv .venv
-    } else {
-        & python -m venv .venv
-    }
+    & $pythonCmd.Exe @($pythonCmd.Args + @('-m', 'venv', '.venv'))
 }
 
 $venvPython = Join-Path $InstallDir '.venv\Scripts\python.exe'
