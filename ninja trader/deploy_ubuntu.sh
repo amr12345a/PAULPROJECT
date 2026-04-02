@@ -189,7 +189,8 @@ ensure_wine_prereqs() {
     return 0
   fi
 
-  if [ ! -x "$(command -v winetricks 2>/dev/null || true)" ]; then
+  WINETRICKS_BIN="$(command -v winetricks 2>/dev/null || true)"
+  if [ -z "$WINETRICKS_BIN" ]; then
     echo "[prereq] winetricks not found; skipping .NET bootstrap" >&2
     WINE_PREREQS_DONE=1
     return 0
@@ -202,7 +203,7 @@ ensure_wine_prereqs() {
   fi
 
   echo "[prereq] Installing .NET Framework 4.8 into Wine prefix" >&2
-  run_wine_cmd winetricks -q dotnet48 >/tmp/ninjatrader-winetricks.log 2>&1 || {
+  WINEPREFIX="$WINEPREFIX" DISPLAY="$DISPLAY" HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" "$WINETRICKS_BIN" -q dotnet48 >/tmp/ninjatrader-winetricks.log 2>&1 || {
     cat /tmp/ninjatrader-winetricks.log
     echo "[prereq] .NET 4.8 bootstrap failed" >&2
     return 1
