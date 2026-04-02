@@ -303,7 +303,11 @@ if [ -f "$NT_INSTALLER_MSI" ] && is_valid_installer_file "$NT_INSTALLER_MSI"; th
     echo "Start VNC first: sudo systemctl restart tigervnc"
     exit 1
   fi
-  exec "$WINE_BIN" msiexec /i "$NT_INSTALLER_MSI" "$@"
+  # Convert Linux path to Wine Z: drive path
+  local wine_path
+  wine_path="Z:$(echo "$NT_INSTALLER_MSI" | sed 's|/|\\|g')"
+  echo "[launcher] Wine path: $wine_path" >&2
+  exec "$WINE_BIN" msiexec /i "$wine_path" "$@"
 fi
 
 if [ -f "$NT_INSTALLER_EXE" ] && is_valid_installer_file "$NT_INSTALLER_EXE"; then
@@ -313,7 +317,11 @@ if [ -f "$NT_INSTALLER_EXE" ] && is_valid_installer_file "$NT_INSTALLER_EXE"; th
     echo "Start VNC first: sudo systemctl restart tigervnc"
     exit 1
   fi
-  exec "$WINE_BIN" "$NT_INSTALLER_EXE" "$@"
+  # Convert Linux path to Wine Z: drive path
+  local wine_path
+  wine_path="Z:$(echo "$NT_INSTALLER_EXE" | sed 's|/|\\|g')"
+  echo "[launcher] Wine path: $wine_path" >&2
+  exec "$WINE_BIN" "$wine_path" "$@"
 fi
 
 echo "[launcher] No pre-existing installer found. Attempting runtime discovery/download..." >&2
@@ -325,12 +333,15 @@ if installer_path="$(download_direct_installer 2>&1)"; then
     echo "Start VNC first: sudo systemctl restart tigervnc"
     exit 1
   fi
+  local wine_path
+  wine_path="Z:$(echo "$installer_path" | sed 's|/|\\|g')"
+  echo "[launcher] Wine path: $wine_path" >&2
   if echo "$installer_path" | grep -Eiq '\.msi$'; then
     echo "[launcher] Launching via msiexec" >&2
-    exec "$WINE_BIN" msiexec /i "$installer_path" "$@"
+    exec "$WINE_BIN" msiexec /i "$wine_path" "$@"
   fi
   echo "[launcher] Launching .exe directly" >&2
-  exec "$WINE_BIN" "$installer_path" "$@"
+  exec "$WINE_BIN" "$wine_path" "$@"
 fi
 
 if installer_path="$(discover_installer_file 2>&1)"; then
@@ -340,12 +351,15 @@ if installer_path="$(discover_installer_file 2>&1)"; then
     echo "Start VNC first: sudo systemctl restart tigervnc"
     exit 1
   fi
+  local wine_path
+  wine_path="Z:$(echo "$installer_path" | sed 's|/|\\|g')"
+  echo "[launcher] Wine path: $wine_path" >&2
   if echo "$installer_path" | grep -Eiq '\.msi$'; then
     echo "[launcher] Launching via msiexec" >&2
-    exec "$WINE_BIN" msiexec /i "$installer_path" "$@"
+    exec "$WINE_BIN" msiexec /i "$wine_path" "$@"
   fi
   echo "[launcher] Launching .exe directly" >&2
-  exec "$WINE_BIN" "$installer_path" "$@"
+  exec "$WINE_BIN" "$wine_path" "$@"
 fi
 
 echo ""
