@@ -28,6 +28,7 @@ sudo apt install -y \
   python3-venv \
   nginx \
   dbus-x11 \
+  xvfb \
   tigervnc-standalone-server \
   tigervnc-common \
   xfce4 \
@@ -132,9 +133,18 @@ set -euo pipefail
 
 NT_DIR="${NT_DIR:-/opt/ninjatrader}"
 export DISPLAY="${DISPLAY:-:1}"
-export HOME="${HOME:-/home/ubuntu}"
-export USER="${USER:-ubuntu}"
-export LOGNAME="${LOGNAME:-ubuntu}"
+
+# Avoid hard-coded usernames/home paths; prefer the current user context.
+if [ -z "${USER:-}" ]; then
+  export USER="$(id -un)"
+fi
+if [ -z "${LOGNAME:-}" ]; then
+  export LOGNAME="$USER"
+fi
+if [ -z "${HOME:-}" ]; then
+  export HOME="$(eval echo "~${USER}")"
+fi
+
 export WINEARCH="${WINEARCH:-win64}"
 export WINEPREFIX="${WINEPREFIX:-${NT_DIR}/.wine}"
 
@@ -146,9 +156,53 @@ fi
 
 mkdir -p "$WINEPREFIX"
 
+have_display() {
+  if command -v xdpyinfo >/dev/null 2>&1; then
+    xdpyinfo -display "$DISPLAY" >/dev/null 2>&1
+    return $?
+  fi
+  [ -S "/tmp/.X11-unix/X${DISPLAY#:}" ]
+}
+
+run_wine_cmd() {
+  if have_display; then
+    "$WINE_BIN" "$@"
+    return $?
+  fi
+
+  if command -v xvfb-run >/dev/null 2>&1; then
+    xvfb-run -a "$WINE_BIN" "$@"
+    return $?
+  fi
+
+  echo "No X display is available for DISPLAY=${DISPLAY}."
+  echo "Start VNC/X first, or install xvfb for headless initialization."
+  return 1
+}
+
 if [ ! -f "$WINEPREFIX/system.reg" ]; then
-  "$WINE_BIN" wineboot -u >/tmp/ninjatrader-wineboot.log 2>&1 || {
+  run_wine_cmd wineboot -u >/tmp/ninjatrader-wineboot.log 2>&1 || {
     cat /tmp/ninjatrader-wineboot.log
+    if grep -qi 'could not load kernel32\.dll' /tmp/ninjatrader-wineboot.log; then
+      echo ""
+      echo "Detected broken/incomplete Wine runtime (kernel32.dll missing)."
+      echo "On Ubuntu, install 32-bit Wine support and recreate the prefix:"
+      echo "  sudo dpkg --add-architecture i386"
+      echo "  sudo apt update"
+      echo "  sudo apt install -y --install-recommends wine wine64 wine32 winetricks libwine libwine:i386"
+      echo "  rm -rf \"${WINEPREFIX}\""
+      echo "Then rerun this launcher as your normal deploy user (not root)."
+    fi
+    if grep -qi 'nodrv_CreateWindow\|Make sure that your X server is running' /tmp/ninjatrader-wineboot.log; then
+      echo ""
+      echo "Detected missing X display for Wine GUI initialization."
+      echo "Start TigerVNC and confirm DISPLAY is reachable:"
+      echo "  sudo systemctl restart tigervnc"
+      echo "  sudo systemctl status tigervnc --no-pager"
+      echo "  export DISPLAY=:1"
+      echo "  xdpyinfo -display :1 | head"
+      echo "Then rerun this launcher as your deploy user."
+    fi
     echo "Wine prefix initialization failed. Check that wine and its dependencies are installed."
     exit 1
   }
@@ -159,14 +213,29 @@ NT_INSTALLER_MSI="${NT_DIR}/NinjaTraderInstaller.msi"
 NT_INSTALLER_EXE="${NT_DIR}/NinjaTraderInstaller.exe"
 
 if [ -f "$NT_EXE" ]; then
+  if ! have_display; then
+    echo "NinjaTrader requires a GUI display, but DISPLAY=${DISPLAY} is not available."
+    echo "Start VNC first: sudo systemctl restart tigervnc"
+    exit 1
+  fi
   exec "$WINE_BIN" "$NT_EXE" "$@"
 fi
 
 if [ -f "$NT_INSTALLER_MSI" ]; then
+  if ! have_display; then
+    echo "NinjaTrader installer requires a GUI display, but DISPLAY=${DISPLAY} is not available."
+    echo "Start VNC first: sudo systemctl restart tigervnc"
+    exit 1
+  fi
   exec "$WINE_BIN" msiexec /i "$NT_INSTALLER_MSI" "$@"
 fi
 
 if [ -f "$NT_INSTALLER_EXE" ]; then
+  if ! have_display; then
+    echo "NinjaTrader installer requires a GUI display, but DISPLAY=${DISPLAY} is not available."
+    echo "Start VNC first: sudo systemctl restart tigervnc"
+    exit 1
+  fi
   exec "$WINE_BIN" "$NT_INSTALLER_EXE" "$@"
 fi
 
