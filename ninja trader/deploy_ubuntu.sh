@@ -31,6 +31,9 @@ sudo apt install -y \
   nginx \
   dbus-x11 \
   xvfb \
+  winbind \
+  cabextract \
+  p7zip-full \
   tigervnc-standalone-server \
   tigervnc-common \
   xfce4 \
@@ -229,10 +232,12 @@ ensure_wine_prereqs() {
   fi
 
   echo "[prereq] Installing .NET Framework 4.8 into Wine prefix" >&2
-  WINEPREFIX="$WINEPREFIX" DISPLAY="$DISPLAY" HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" run_with_session "$WINETRICKS_BIN" -q dotnet48 >/tmp/ninjatrader-winetricks.log 2>&1 || {
+  WINEPREFIX="$WINEPREFIX" DISPLAY="$DISPLAY" HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" \
+    WINEDLLOVERRIDES="mscoree,mshtml=" run_with_session "$WINETRICKS_BIN" -q -f dotnet48 >/tmp/ninjatrader-winetricks.log 2>&1 || {
     cat /tmp/ninjatrader-winetricks.log
-    echo "[prereq] .NET 4.8 bootstrap failed" >&2
-    return 1
+    echo "[prereq] .NET 4.8 bootstrap failed; continuing to MSI launch" >&2
+    WINE_PREREQS_DONE=1
+    return 0
   }
 
   touch "$WINEPREFIX/.dotnet48.installed"
@@ -250,7 +255,7 @@ launch_installer_file() {
 
   if is_msi_payload "$installer_file"; then
     echo "[launcher] Detected MSI payload; ensuring .NET prereqs before msiexec" >&2
-    ensure_wine_prereqs
+    ensure_wine_prereqs || true
     echo "[launcher] Detected MSI payload; using msiexec" >&2
     exec_with_session "$WINE_BIN" msiexec /i "$wine_path" "$@"
   fi
