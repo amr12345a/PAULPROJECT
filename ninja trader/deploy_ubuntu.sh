@@ -12,6 +12,7 @@ VNC_DISPLAY=":1"
 VNC_GEOMETRY="${VNC_GEOMETRY:-1920x1080}"
 VNC_DEPTH="${VNC_DEPTH:-24}"
 VNC_PASSWORD="${VNC_PASSWORD:-change-me-now}"
+AUTO_LAUNCH_NINJATRADER="${AUTO_LAUNCH_NINJATRADER:-1}"
 
 if [ -z "${APP_DIR}" ] || [ "${APP_DIR}" = "/" ]; then
   echo "Refusing to use APP_DIR='${APP_DIR}'. Set APP_DIR to a non-root application directory."
@@ -285,8 +286,39 @@ sudo systemctl enable tigervnc
 sudo systemctl restart tigervnc
 sudo systemctl status tigervnc --no-pager
 
+if [ "$AUTO_LAUNCH_NINJATRADER" = "1" ]; then
+  echo "Waiting for X display ${VNC_DISPLAY} to become ready..."
+  for _ in $(seq 1 45); do
+    if sudo -u "$DEPLOY_USER" env DISPLAY="$VNC_DISPLAY" xdpyinfo >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+
+  if sudo -u "$DEPLOY_USER" env DISPLAY="$VNC_DISPLAY" xdpyinfo >/dev/null 2>&1; then
+    # Avoid duplicate launcher processes when rerunning deployment.
+    sudo -u "$DEPLOY_USER" pkill -f "$NT_LAUNCHER_WRAPPER" >/dev/null 2>&1 || true
+
+    sudo -u "$DEPLOY_USER" env \
+      DISPLAY="$VNC_DISPLAY" \
+      HOME="$DEPLOY_HOME" \
+      USER="$DEPLOY_USER" \
+      LOGNAME="$DEPLOY_USER" \
+      NT_DIR="$NT_DIR" \
+      WINEPREFIX="${NT_DIR}/.wine" \
+      nohup "$NT_LAUNCHER_WRAPPER" >/tmp/ninjatrader-launch.log 2>&1 &
+
+    echo "NinjaTrader launcher started automatically."
+    echo "Launcher log: /tmp/ninjatrader-launch.log"
+  else
+    echo "Could not auto-launch NinjaTrader because DISPLAY ${VNC_DISPLAY} is not ready."
+    echo "Run manually after VNC is up:"
+    echo "  sudo -u ${DEPLOY_USER} env DISPLAY=${VNC_DISPLAY} HOME=${DEPLOY_HOME} ${NT_LAUNCHER_WRAPPER}"
+  fi
+fi
+
 echo "NinjaTrader installer file is available in: ${NT_DIR}"
-echo "Open VNC and run the .msi installer manually from there."
+echo "Installer auto-launch is enabled by default (AUTO_LAUNCH_NINJATRADER=1)."
 
 echo "=========================================="
 echo "Deployment complete!"
