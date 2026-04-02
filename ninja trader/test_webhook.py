@@ -28,8 +28,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--url",
-        default="http://13.53.172.241/trade",
-        help="Webhook URL (default: http://13.53.172.241/trade)",
+        default="http://127.0.0.1:8080/trade",
+        help="Webhook URL (default: http://127.0.0.1:8080/trade)",
     )
     parser.add_argument("--bot-id", default="my-bot2", help="Value for payload id")
     parser.add_argument("--ticker", default="AAPL", help="Ticker symbol")

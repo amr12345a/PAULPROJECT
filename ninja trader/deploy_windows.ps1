@@ -3,7 +3,7 @@ param(
     [string]$TaskName = 'NinjaTraderTradeExecutor',
     [switch]$CreateScheduledTask,
     [switch]$OpenFirewall,
-    [int]$Port = 80
+    [int]$Port = 8080
 )
 
 $ErrorActionPreference = 'Stop'

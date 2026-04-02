@@ -41,7 +41,7 @@ class Settings:
     nt_instrument_prefix: str = os.getenv("NT_INSTRUMENT_PREFIX", "")
 
     host: str = os.getenv("HOST", "0.0.0.0")
-    port: int = int(os.getenv("PORT", "80"))
+    port: int = int(os.getenv("PORT", "8080"))
 
     default_order_type: str = os.getenv("DEFAULT_ORDER_TYPE", "Market")
     default_quantity: int = int(os.getenv("DEFAULT_QUANTITY", "1"))

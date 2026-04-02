@@ -8,4 +8,4 @@ if (-not (Test-Path $venvPython)) {
 }
 
 Set-Location $scriptRoot
-& $venvPython -m uvicorn main:app --host 0.0.0.0 --port 80
+& $venvPython -m uvicorn main:app --host 0.0.0.0 --port 8080
