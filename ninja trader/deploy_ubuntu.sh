@@ -7,6 +7,7 @@ DEPLOY_USER="${SUDO_USER:-$USER}"
 DEPLOY_HOME="$(eval echo "~${DEPLOY_USER}")"
 NT_DIR="/opt/ninjatrader"
 NT_INSTALLER_URL="${NT_INSTALLER_URL:-https://download.ninjatrader.com/}"
+NT_INSTALLER_URL="${NT_INSTALLER_URL%$'\r'}"
 
 VNC_DISPLAY=":1"
 VNC_GEOMETRY="${VNC_GEOMETRY:-1920x1080}"
@@ -134,6 +135,7 @@ cat > "$NT_LAUNCHER_WRAPPER" <<'EOF'
 set -euo pipefail
 
 NT_DIR="${NT_DIR:-/opt/ninjatrader}"
+NT_INSTALLER_URL="${NT_INSTALLER_URL:-https://download.ninjatrader.com/}"
 export DISPLAY="${DISPLAY:-:1}"
 
 # Avoid hard-coded usernames/home paths; prefer the current user context.
@@ -214,6 +216,58 @@ NT_EXE="${NT_DIR}/NinjaTrader 8/bin/NinjaTrader.exe"
 NT_INSTALLER_MSI="${NT_DIR}/NinjaTraderInstaller.msi"
 NT_INSTALLER_EXE="${NT_DIR}/NinjaTraderInstaller.exe"
 
+is_valid_installer_file() {
+  local f="$1"
+  [ -f "$f" ] || return 1
+
+  case "$(printf '%s' "$f" | tr '[:upper:]' '[:lower:]')" in
+    *.msi|*.exe) ;;
+    *) return 1 ;;
+  esac
+
+  if command -v file >/dev/null 2>&1 && file "$f" | grep -Eiq 'html|xml|text'; then
+    return 1
+  fi
+
+  return 0
+}
+
+discover_installer_file() {
+  local found
+  found="$(find "$NT_DIR" -maxdepth 2 -type f \( -iname '*.msi' -o -iname '*.exe' \) | head -n 1 || true)"
+  if [ -n "$found" ] && is_valid_installer_file "$found"; then
+    printf '%s\n' "$found"
+    return 0
+  fi
+  return 1
+}
+
+download_direct_installer() {
+  if ! echo "$NT_INSTALLER_URL" | grep -Eiq '\.(msi|exe)(\?.*)?$'; then
+    return 1
+  fi
+
+  local installer_ext installer_file tmp_file
+  installer_ext="$(echo "$NT_INSTALLER_URL" | grep -Eoi '\.(msi|exe)' | tr -d '.' | tr '[:upper:]' '[:lower:]')"
+  installer_file="${NT_DIR}/NinjaTraderInstaller.${installer_ext}"
+  tmp_file="${installer_file}.download"
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL "$NT_INSTALLER_URL" -o "$tmp_file"
+  else
+    wget -O "$tmp_file" "$NT_INSTALLER_URL"
+  fi
+
+  if ! is_valid_installer_file "$tmp_file"; then
+    rm -f "$tmp_file"
+    return 1
+  fi
+
+  mv -f "$tmp_file" "$installer_file"
+  printf '%s\n' "$installer_file"
+  return 0
+}
+
 if [ -f "$NT_EXE" ]; then
   if ! have_display; then
     echo "NinjaTrader requires a GUI display, but DISPLAY=${DISPLAY} is not available."
@@ -223,7 +277,7 @@ if [ -f "$NT_EXE" ]; then
   exec "$WINE_BIN" "$NT_EXE" "$@"
 fi
 
-if [ -f "$NT_INSTALLER_MSI" ]; then
+if [ -f "$NT_INSTALLER_MSI" ] && is_valid_installer_file "$NT_INSTALLER_MSI"; then
   if ! have_display; then
     echo "NinjaTrader installer requires a GUI display, but DISPLAY=${DISPLAY} is not available."
     echo "Start VNC first: sudo systemctl restart tigervnc"
@@ -232,7 +286,7 @@ if [ -f "$NT_INSTALLER_MSI" ]; then
   exec "$WINE_BIN" msiexec /i "$NT_INSTALLER_MSI" "$@"
 fi
 
-if [ -f "$NT_INSTALLER_EXE" ]; then
+if [ -f "$NT_INSTALLER_EXE" ] && is_valid_installer_file "$NT_INSTALLER_EXE"; then
   if ! have_display; then
     echo "NinjaTrader installer requires a GUI display, but DISPLAY=${DISPLAY} is not available."
     echo "Start VNC first: sudo systemctl restart tigervnc"
@@ -241,8 +295,33 @@ if [ -f "$NT_INSTALLER_EXE" ]; then
   exec "$WINE_BIN" "$NT_INSTALLER_EXE" "$@"
 fi
 
+if installer_path="$(download_direct_installer 2>/tmp/ninjatrader-installer-download.log)"; then
+  if ! have_display; then
+    echo "Installer was downloaded but DISPLAY=${DISPLAY} is not available."
+    echo "Start VNC first: sudo systemctl restart tigervnc"
+    exit 1
+  fi
+  if echo "$installer_path" | grep -Eiq '\.msi$'; then
+    exec "$WINE_BIN" msiexec /i "$installer_path" "$@"
+  fi
+  exec "$WINE_BIN" "$installer_path" "$@"
+fi
+
+if installer_path="$(discover_installer_file)"; then
+  if ! have_display; then
+    echo "NinjaTrader installer requires a GUI display, but DISPLAY=${DISPLAY} is not available."
+    echo "Start VNC first: sudo systemctl restart tigervnc"
+    exit 1
+  fi
+  if echo "$installer_path" | grep -Eiq '\.msi$'; then
+    exec "$WINE_BIN" msiexec /i "$installer_path" "$@"
+  fi
+  exec "$WINE_BIN" "$installer_path" "$@"
+fi
+
 echo "NinjaTrader installer or executable not found in ${NT_DIR}"
-echo "Put the .msi in that folder and run it from VNC."
+echo "Set NT_INSTALLER_URL to a direct .msi/.exe URL (current: ${NT_INSTALLER_URL})"
+echo "Or place the installer file under ${NT_DIR}"
 sleep 300
 exit 1
 EOF
@@ -306,6 +385,7 @@ if [ "$AUTO_LAUNCH_NINJATRADER" = "1" ]; then
       USER="$DEPLOY_USER" \
       LOGNAME="$DEPLOY_USER" \
       NT_DIR="$NT_DIR" \
+      NT_INSTALLER_URL="$NT_INSTALLER_URL" \
       WINEPREFIX="${NT_DIR}/.wine" \
       nohup "$NT_LAUNCHER_WRAPPER" >/tmp/ninjatrader-launch.log 2>&1 &
 
