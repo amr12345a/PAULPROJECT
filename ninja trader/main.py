@@ -7,6 +7,7 @@ import logging
 import socket
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
@@ -55,6 +56,21 @@ class Settings:
     nt_signal_retry_attempts: int = int(os.getenv("NT_SIGNAL_RETRY_ATTEMPTS", "2"))
     nt_signal_retry_delay_seconds: float = float(os.getenv("NT_SIGNAL_RETRY_DELAY_SECONDS", "0.4"))
     nt_heartbeat_enabled: bool = os.getenv("NT_HEARTBEAT_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+    def __post_init__(self) -> None:
+        parsed = urlparse(self.nt_strategy_url)
+        if "YOUR_NINJATRADER_HOST_IP" in self.nt_strategy_url:
+            raise ValueError(
+                "NT_STRATEGY_URL is still set to placeholder value. "
+                "Set it to your real NinjaTrader receiver URL in .env."
+            )
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError(
+                "NT_STRATEGY_URL must be a valid http(s) URL with host, "
+                "for example http://127.0.0.1:8000/api/v1/signal"
+            )
+        if self.default_quantity <= 0:
+            raise ValueError("DEFAULT_QUANTITY must be a positive integer")
 
 
 settings = Settings()
@@ -129,18 +145,30 @@ class NinjaTraderExecutor:
                 "signal_mode": self.settings.nt_order_signal_mode,
             }
 
+            effective_timeout = max(
+                self.settings.nt_signal_timeout_seconds,
+                self.settings.order_status_wait_seconds,
+                0.5,
+            )
+            attempts = max(self.settings.nt_signal_retry_attempts, 1)
+            started_at = time.monotonic()
+
             try:
                 status_code, response_text = self._send_with_retries(
                     payload=payload,
-                    timeout=max(
-                        self.settings.nt_signal_timeout_seconds,
-                        self.settings.order_status_wait_seconds,
-                        0.5,
-                    ),
+                    timeout=effective_timeout,
                 )
             except urllib_error.HTTPError as exc:
                 body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
                 raise RuntimeError(f"NinjaTrader signal rejected ({exc.code}): {body}") from exc
+            except (TimeoutError, socket.timeout) as exc:
+                elapsed = time.monotonic() - started_at
+                raise RuntimeError(
+                    "NinjaTrader strategy timed out "
+                    f"after {attempts} attempt(s) to {self.connection.strategy_url} "
+                    f"with {effective_timeout:.1f}s timeout per attempt "
+                    f"(elapsed {elapsed:.1f}s)"
+                ) from exc
             except urllib_error.URLError as exc:
                 raise RuntimeError(f"NinjaTrader strategy unreachable: {exc}") from exc
 
@@ -185,6 +213,47 @@ class NinjaTraderExecutorManager:
         }
 
 
+def probe_strategy_tcp(strategy_url: str, timeout: float = 2.0) -> dict:
+    parsed = urlparse(strategy_url)
+    if parsed.scheme not in {"http", "https"}:
+        return {
+            "ok": False,
+            "error": f"Unsupported scheme '{parsed.scheme or '(missing)'}'",
+            "strategy_url": strategy_url,
+        }
+
+    host = parsed.hostname
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    if not host:
+        return {
+            "ok": False,
+            "error": "Missing host in NT_STRATEGY_URL",
+            "strategy_url": strategy_url,
+        }
+
+    started = time.monotonic()
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            elapsed = time.monotonic() - started
+            return {
+                "ok": True,
+                "host": host,
+                "port": port,
+                "connect_elapsed_seconds": round(elapsed, 3),
+                "strategy_url": strategy_url,
+            }
+    except OSError as exc:
+        elapsed = time.monotonic() - started
+        return {
+            "ok": False,
+            "host": host,
+            "port": port,
+            "connect_elapsed_seconds": round(elapsed, 3),
+            "strategy_url": strategy_url,
+            "error": str(exc),
+        }
+
+
 app = FastAPI(title="NinjaTrader Trade Executor", version="1.0.0")
 executors = NinjaTraderExecutorManager(settings)
 
@@ -195,6 +264,15 @@ def health() -> dict:
         "ok": True,
         "service": "NinjaTrader Signal Bridge",
         "ninja_trader": executors.health(),
+    }
+
+
+@app.get("/health/ninja-trader")
+def health_ninja_trader() -> dict:
+    ex = executors.get_executor()
+    return {
+        "ok": True,
+        "strategy": probe_strategy_tcp(ex.connection.strategy_url),
     }
 
 

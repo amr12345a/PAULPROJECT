@@ -94,6 +94,26 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 4. Confirm the strategy is attached, enabled, and allowed to trade on the chosen account.
 
+## NinjaTrader receiver contract (important)
+
+For stable webhook trading, your NinjaScript HTTP receiver should:
+
+1. Return an HTTP response quickly (ideally `200`/`202` within 1-2 seconds).
+2. Avoid waiting for full fill lifecycle before sending HTTP response.
+3. Queue or dispatch order logic internally, then track outcomes through strategy events.
+4. Use strategy callbacks such as `OnOrderUpdate()` and `OnExecutionUpdate()` to monitor actual broker states.
+
+If the receiver blocks while waiting on strategy/order processing, this bridge will eventually time out and return `502`.
+
+## Sample pattern
+
+See [NinjaTraderWebhookReceiverStrategy.cs](NinjaTraderWebhookReceiverStrategy.cs) for a minimal example that:
+
+1. Returns HTTP success immediately.
+2. Queues received signals instead of trading inside the HTTP handler.
+3. Submits orders from strategy context.
+4. Tracks order state through `OnOrderUpdate()` and `OnExecutionUpdate()`.
+
 ## How to make it trade correctly
 
 1. Start NinjaTrader and make sure the strategy endpoint is running.
@@ -106,9 +126,32 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 5. Start the bridge and verify `GET /health` returns `ok: true`.
 
-6. Send a test webhook to `POST /trade` and confirm NinjaTrader receives the signal.
+6. Verify bridge-to-NinjaTrader TCP connectivity with `GET /health/ninja-trader`.
+  This confirms the bridge host can open a socket to `NT_STRATEGY_URL` host and port.
 
-7. Check NinjaTrader logs, the strategy output, and the account/order tab to verify the order was created.
+7. Send a test webhook to `POST /trade` and confirm NinjaTrader receives the signal.
+
+8. Check NinjaTrader logs, the strategy output, and the account/order tab to verify the order was created.
+
+## NinjaTrader timeout troubleshooting
+
+1. Call `GET /health/ninja-trader` and confirm socket connectivity is `ok: true`.
+2. If connectivity is true but `POST /trade` times out, the NinjaTrader listener accepted the connection but did not answer HTTP in time.
+3. In NinjaTrader, confirm your receiver code sends HTTP response first, then performs heavy processing.
+4. Validate strategy state/lifecycle handling in `OnStateChange()` so listeners/resources are initialized and cleaned up correctly.
+5. Review `OnOrderUpdate()` and `OnExecutionUpdate()` logs to ensure order events are not blocking your HTTP handler thread.
+
+## Fix .env parse errors
+
+If startup shows `python-dotenv could not parse statement starting at line X`:
+
+1. Open `.env` and fix that line so it is exactly `KEY=value` (no leading spaces, no trailing comments on same line).
+2. Wrap values with spaces in double quotes, for example `NT_ACCOUNT="Sim101"`.
+3. Do not use `:` between key and value (must be `=`).
+4. Ensure `NT_STRATEGY_URL` is a real URL, not the placeholder from `.env.example`.
+5. Restart the app after fixing `.env`.
+
+The app now validates `NT_STRATEGY_URL` at startup and will stop with a clear error if it is invalid or left as placeholder.
 
 ## Test with curl
 
@@ -117,6 +160,16 @@ curl -Method POST "http://YOUR_PUBLIC_IP:8080/trade" `
   -Headers @{"content-type"="application/json"} `
   -Body '{"id":"my-bot2","ticker":"AAPL","action":"buy"}'
 ```
+
+## Test the NinjaTrader receiver
+
+Use the dedicated tester against the receiver strategy sample:
+
+```powershell
+python .\test_ninjatrader_webhook.py --url http://127.0.0.1:8000/api/v1/signal/ --ticker ES --action buy --quantity 1
+```
+
+If NinjaTrader is on another machine, replace `127.0.0.1` with that machine's IP address and keep the port and path aligned with `ListenPrefix`.
 
 ## Security notes
 

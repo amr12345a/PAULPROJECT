@@ -24,20 +24,26 @@ def send_webhook(url: str, payload: dict, timeout: float) -> tuple[int, str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Send test trade webhook requests to the NinjaTrader trade executor."
+        description="Send test webhook requests to the NinjaTrader webhook receiver strategy."
     )
     parser.add_argument(
         "--url",
-        default="http://127.0.0.1:8080/trade",
-        help="Webhook URL (default: http://127.0.0.1:8080/trade)",
+        default="http://127.0.0.1:8000/api/v1/signal/",
+        help="Webhook URL (default: http://127.0.0.1:8000/api/v1/signal/)",
     )
-    parser.add_argument("--bot-id", default="my-bot2", help="Value for payload id")
+    parser.add_argument("--id", default="my-bot2", help="Signal id")
     parser.add_argument("--ticker", default="ES", help="Ticker symbol")
     parser.add_argument(
         "--action",
         default="buy",
         choices=["buy", "sell"],
         help="Trade action",
+    )
+    parser.add_argument(
+        "--quantity",
+        type=int,
+        default=1,
+        help="Quantity to send (default: 1)",
     )
     parser.add_argument(
         "--attempts",
@@ -54,8 +60,8 @@ def main() -> int:
     parser.add_argument(
         "--timeout",
         type=float,
-        default=10.0,
-        help="Request timeout in seconds (default: 10.0)",
+        default=5.0,
+        help="Request timeout in seconds (default: 5.0)",
     )
 
     args = parser.parse_args()
@@ -64,10 +70,15 @@ def main() -> int:
         print("--attempts must be greater than 0")
         return 2
 
+    if args.quantity <= 0:
+        print("--quantity must be greater than 0")
+        return 2
+
     payload = {
-        "id": args.bot_id,
+        "id": args.id,
         "ticker": args.ticker,
         "action": args.action,
+        "quantity": args.quantity,
     }
 
     failures = 0
