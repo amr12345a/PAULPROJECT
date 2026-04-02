@@ -34,6 +34,7 @@ sudo apt install -y \
   winbind \
   cabextract \
   p7zip-full \
+  w3m \
   tigervnc-standalone-server \
   tigervnc-common \
   xfce4 \
@@ -152,6 +153,10 @@ if [ -z "${HOME:-}" ]; then
   export HOME="$(eval echo "~${USER}")"
 fi
 
+# Some winetricks/.NET installers try to open release notes in a browser.
+export BROWSER="${BROWSER:-/usr/bin/xdg-open}"
+export WINETRICKS_SUPER_QUIET="${WINETRICKS_SUPER_QUIET:-1}"
+
 export WINEARCH="${WINEARCH:-win64}"
 export WINEPREFIX="${WINEPREFIX:-${NT_DIR}/.wine}"
 
@@ -232,7 +237,7 @@ ensure_wine_prereqs() {
   fi
 
   echo "[prereq] Installing .NET Framework 4.8 into Wine prefix" >&2
-  WINEPREFIX="$WINEPREFIX" DISPLAY="$DISPLAY" HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" \
+  WINEPREFIX="$WINEPREFIX" DISPLAY="$DISPLAY" HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" BROWSER="$BROWSER" \
     WINEDLLOVERRIDES="mscoree,mshtml=" run_with_session "$WINETRICKS_BIN" -q -f dotnet48 >/tmp/ninjatrader-winetricks.log 2>&1 || {
     cat /tmp/ninjatrader-winetricks.log
     echo "[prereq] .NET 4.8 bootstrap failed; continuing to MSI launch" >&2
