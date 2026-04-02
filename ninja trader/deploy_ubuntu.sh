@@ -287,6 +287,16 @@ download_direct_installer() {
   return 0
 }
 
+to_wine_path() {
+  printf 'Z:%s\n' "$(printf '%s' "$1" | sed 's|/|\\\\|g')"
+}
+
+log_file_type() {
+  if command -v file >/dev/null 2>&1; then
+    echo "[launcher] file: $(file "$1" 2>&1)" >&2
+  fi
+}
+
 if [ -f "$NT_EXE" ]; then
   if ! have_display; then
     echo "NinjaTrader requires a GUI display, but DISPLAY=${DISPLAY} is not available."
@@ -298,28 +308,26 @@ fi
 
 if [ -f "$NT_INSTALLER_MSI" ] && is_valid_installer_file "$NT_INSTALLER_MSI"; then
   echo "[launcher] Using existing: $NT_INSTALLER_MSI" >&2
+  log_file_type "$NT_INSTALLER_MSI"
   if ! have_display; then
     echo "NinjaTrader installer requires a GUI display, but DISPLAY=${DISPLAY} is not available."
     echo "Start VNC first: sudo systemctl restart tigervnc"
     exit 1
   fi
-  # Convert Linux path to Wine Z: drive path
-  local wine_path
-  wine_path="Z:$(echo "$NT_INSTALLER_MSI" | sed 's|/|\\|g')"
+  wine_path="$(to_wine_path "$NT_INSTALLER_MSI")"
   echo "[launcher] Wine path: $wine_path" >&2
   exec "$WINE_BIN" msiexec /i "$wine_path" "$@"
 fi
 
 if [ -f "$NT_INSTALLER_EXE" ] && is_valid_installer_file "$NT_INSTALLER_EXE"; then
   echo "[launcher] Using existing: $NT_INSTALLER_EXE" >&2
+  log_file_type "$NT_INSTALLER_EXE"
   if ! have_display; then
     echo "NinjaTrader installer requires a GUI display, but DISPLAY=${DISPLAY} is not available."
     echo "Start VNC first: sudo systemctl restart tigervnc"
     exit 1
   fi
-  # Convert Linux path to Wine Z: drive path
-  local wine_path
-  wine_path="Z:$(echo "$NT_INSTALLER_EXE" | sed 's|/|\\|g')"
+  wine_path="$(to_wine_path "$NT_INSTALLER_EXE")"
   echo "[launcher] Wine path: $wine_path" >&2
   exec "$WINE_BIN" "$wine_path" "$@"
 fi
@@ -328,13 +336,13 @@ echo "[launcher] No pre-existing installer found. Attempting runtime discovery/d
 
 if installer_path="$(download_direct_installer 2>&1)"; then
   echo "[launcher] Downloaded installer: $installer_path" >&2
+  log_file_type "$installer_path"
   if ! have_display; then
     echo "Installer was downloaded but DISPLAY=${DISPLAY} is not available."
     echo "Start VNC first: sudo systemctl restart tigervnc"
     exit 1
   fi
-  local wine_path
-  wine_path="Z:$(echo "$installer_path" | sed 's|/|\\|g')"
+  wine_path="$(to_wine_path "$installer_path")"
   echo "[launcher] Wine path: $wine_path" >&2
   if echo "$installer_path" | grep -Eiq '\.msi$'; then
     echo "[launcher] Launching via msiexec" >&2
@@ -346,13 +354,13 @@ fi
 
 if installer_path="$(discover_installer_file 2>&1)"; then
   echo "[launcher] Discovered installer: $installer_path" >&2
+  log_file_type "$installer_path"
   if ! have_display; then
     echo "NinjaTrader installer requires a GUI display, but DISPLAY=${DISPLAY} is not available."
     echo "Start VNC first: sudo systemctl restart tigervnc"
     exit 1
   fi
-  local wine_path
-  wine_path="Z:$(echo "$installer_path" | sed 's|/|\\|g')"
+  wine_path="$(to_wine_path "$installer_path")"
   echo "[launcher] Wine path: $wine_path" >&2
   if echo "$installer_path" | grep -Eiq '\.msi$'; then
     echo "[launcher] Launching via msiexec" >&2
