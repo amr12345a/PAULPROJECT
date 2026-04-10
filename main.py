@@ -4,6 +4,7 @@ import asyncio
 import threading
 import shutil
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,6 +23,8 @@ def ensure_env_file() -> None:
 
 ensure_env_file()
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -47,8 +50,10 @@ class Settings:
     }
     order_status_wait_seconds: float = float(os.getenv("ORDER_STATUS_WAIT_SECONDS", "2.0"))
     ib_bot_configs_json: str = os.getenv("IB_BOT_CONFIGS_JSON", "").strip()
+    ib_mirror_map_json: str = os.getenv("IB_MIRROR_MAP_JSON", "").strip()
     allowed_bot_ids: set[str] = None  # type: ignore[assignment]
     bot_routes: dict[str, "IBConnectionConfig"] = None  # type: ignore[assignment]
+    mirror_map: dict[str, list[str]] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         allowed = os.getenv("ALLOWED_BOT_IDS", "").strip()
@@ -58,6 +63,7 @@ class Settings:
             self.allowed_bot_ids = set()
 
         self.bot_routes = self._load_bot_routes()
+        self.mirror_map = self._load_mirror_map()
 
         if self.bot_routes:
             if self.allowed_bot_ids:
@@ -70,7 +76,18 @@ class Settings:
                 # If route configs exist, default allowed IDs to route keys.
                 self.allowed_bot_ids = set(self.bot_routes.keys())
 
-            self._validate_unique_route_accounts()
+        if self.mirror_map and self.bot_routes:
+            configured_ids = set(self.bot_routes.keys())
+            for source_id, target_ids in self.mirror_map.items():
+                if source_id not in configured_ids:
+                    raise ValueError(
+                        f"IB_MIRROR_MAP_JSON source id '{source_id}' is missing from IB_BOT_CONFIGS_JSON"
+                    )
+                for target_id in target_ids:
+                    if target_id not in configured_ids:
+                        raise ValueError(
+                            f"IB_MIRROR_MAP_JSON target id '{target_id}' is missing from IB_BOT_CONFIGS_JSON"
+                        )
 
     def _load_bot_routes(self) -> dict[str, "IBConnectionConfig"]:
         if not self.ib_bot_configs_json:
@@ -105,17 +122,55 @@ class Settings:
 
         return routes
 
-    def _validate_unique_route_accounts(self) -> None:
-        account_to_id: dict[str, str] = {}
-        for bot_id, route in self.bot_routes.items():
-            if not route.account:
-                continue
-            if route.account in account_to_id:
-                other_id = account_to_id[route.account]
+    def _load_mirror_map(self) -> dict[str, list[str]]:
+        if not self.ib_mirror_map_json:
+            return {}
+
+        try:
+            raw = json.loads(self.ib_mirror_map_json)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid IB_MIRROR_MAP_JSON: {exc}") from exc
+
+        if not isinstance(raw, dict):
+            raise ValueError("IB_MIRROR_MAP_JSON must be a JSON object keyed by source bot id")
+
+        mirrors: dict[str, list[str]] = {}
+        for source_id, target_ids in raw.items():
+            if not isinstance(source_id, str) or not source_id.strip():
+                raise ValueError("IB_MIRROR_MAP_JSON keys must be non-empty source bot id strings")
+
+            normalized_targets: list[str]
+            if isinstance(target_ids, str):
+                normalized_targets = [target_ids.strip()] if target_ids.strip() else []
+            elif isinstance(target_ids, list):
+                normalized_targets = []
+                for target_id in target_ids:
+                    if not isinstance(target_id, str) or not target_id.strip():
+                        raise ValueError(
+                            f"IB_MIRROR_MAP_JSON targets for '{source_id}' must be non-empty strings"
+                        )
+                    normalized_targets.append(target_id.strip())
+            else:
                 raise ValueError(
-                    f"IB account '{route.account}' is configured for multiple bot IDs: '{other_id}' and '{bot_id}'"
+                    f"IB_MIRROR_MAP_JSON value for '{source_id}' must be a string or array of strings"
                 )
-            account_to_id[route.account] = bot_id
+
+            deduped_targets: list[str] = []
+            seen_targets: set[str] = set()
+            for target_id in normalized_targets:
+                if target_id == source_id:
+                    raise ValueError(
+                        f"IB_MIRROR_MAP_JSON source id '{source_id}' cannot mirror to itself"
+                    )
+                if target_id in seen_targets:
+                    continue
+                seen_targets.add(target_id)
+                deduped_targets.append(target_id)
+
+            if deduped_targets:
+                mirrors[source_id] = deduped_targets
+
+        return mirrors
 
 
 @dataclass(frozen=True)
@@ -235,12 +290,25 @@ class IBExecutorManager:
             for bot_id, route in cfg.bot_routes.items()
         }
 
-    def get_executor(self, bot_id: str) -> IBExecutor:
+    def get_executors(self, bot_id: str) -> list[tuple[str, IBExecutor]]:
         if self._route_executors:
             if bot_id not in self._route_executors:
                 raise KeyError(f"No IB route configured for bot id '{bot_id}'")
-            return self._route_executors[bot_id]
-        return self._default_executor
+
+            targets = [bot_id, *self.cfg.mirror_map.get(bot_id, [])]
+            selected: list[tuple[str, IBExecutor]] = []
+            seen_targets: set[str] = set()
+            for target_id in targets:
+                if target_id in seen_targets:
+                    continue
+                if target_id not in self._route_executors:
+                    raise KeyError(f"No IB route configured for mirrored bot id '{target_id}'")
+                seen_targets.add(target_id)
+                selected.append((target_id, self._route_executors[target_id]))
+
+            return selected
+
+        return [(bot_id, self._default_executor)]
 
     def health(self) -> dict:
         if self._route_executors:
@@ -295,27 +363,55 @@ def trade(payload: TradeRequest) -> dict:
         )
 
     try:
-        executor = executors.get_executor(payload.id)
-        result = executor.place_market_order(
-            ticker=payload.ticker,
-            action=payload.action,
-            quantity=qty,
-        )
+        route_executors = executors.get_executors(payload.id)
     except KeyError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=str(exc),
         ) from exc
-    except Exception as exc:
+
+    results: list[dict] = []
+    failures: list[dict] = []
+    for route_bot_id, executor in route_executors:
+        try:
+            route_result = executor.place_market_order(
+                ticker=payload.ticker,
+                action=payload.action,
+                quantity=qty,
+            )
+            results.append(
+                {
+                    "bot_id": route_bot_id,
+                    "result": route_result,
+                }
+            )
+        except Exception as exc:
+            failures.append(
+                {
+                    "bot_id": route_bot_id,
+                    "error": str(exc),
+                }
+            )
+
+    if failures:
+        logger.exception(
+            "Failed to place one or more IB orders for payload=%s failures=%s",
+            payload.model_dump(),
+            failures,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to place IB order: {exc}",
-        ) from exc
+            detail={
+                "message": "Failed to place one or more IB orders",
+                "failures": failures,
+                "succeeded": results,
+            },
+        )
 
     return {
         "accepted": True,
         "request": payload.model_dump(),
-        "result": result,
+        "results": results,
     }
 
 

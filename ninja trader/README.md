@@ -94,6 +94,10 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 4. Confirm the strategy is attached, enabled, and allowed to trade on the chosen account.
 
+5. The strategy is preconfigured to trade these tickers: `ES`, `MES`, `NQ`, `MNQ`, `CL`, `MCL`, `GC`, `MGC`, `YM`, `MYM`, `RTY`, `M2K`.
+
+6. Attach it to one chart for any one of those instruments, then send webhooks with the matching `ticker` field.
+
 ## NinjaTrader receiver contract (important)
 
 For stable webhook trading, your NinjaScript HTTP receiver should:
@@ -114,6 +118,8 @@ See [NinjaTraderWebhookReceiverStrategy.cs](NinjaTraderWebhookReceiverStrategy.c
 3. Submits orders from strategy context.
 4. Tracks order state through `OnOrderUpdate()` and `OnExecutionUpdate()`.
 
+The sample preloads a fixed ticker-to-series map in `State.Configure`. If a webhook arrives for a ticker that is not in that list, the signal is ignored instead of defaulting to the chart instrument.
+
 ## How to make it trade correctly
 
 1. Start NinjaTrader and make sure the strategy endpoint is running.
@@ -123,15 +129,16 @@ See [NinjaTraderWebhookReceiverStrategy.cs](NinjaTraderWebhookReceiverStrategy.c
 3. Set `NT_ACCOUNT` to the account you actually want to trade, for example `Sim101` for testing.
 
 4. Set `NT_INSTRUMENT_PREFIX` only if your strategy expects a contract suffix such as `Z2`.
+5. Use only the preconfigured tickers listed above, including the micro contracts.
 
-5. Start the bridge and verify `GET /health` returns `ok: true`.
+6. Start the bridge and verify `GET /health` returns `ok: true`.
 
-6. Verify bridge-to-NinjaTrader TCP connectivity with `GET /health/ninja-trader`.
+7. Verify bridge-to-NinjaTrader TCP connectivity with `GET /health/ninja-trader`.
   This confirms the bridge host can open a socket to `NT_STRATEGY_URL` host and port.
 
-7. Send a test webhook to `POST /trade` and confirm NinjaTrader receives the signal.
+8. Send a test webhook to `POST /trade` and confirm NinjaTrader receives the signal.
 
-8. Check NinjaTrader logs, the strategy output, and the account/order tab to verify the order was created.
+9. Check NinjaTrader logs, the strategy output, and the account/order tab to verify the order was created.
 
 ## NinjaTrader timeout troubleshooting
 

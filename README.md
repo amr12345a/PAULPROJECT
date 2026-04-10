@@ -23,6 +23,7 @@ Headers:
 - Accepts `id`, `ticker`, `action`.
 - Optionally restricts allowed bot IDs.
 - Routes each `id` to its own IB Gateway/API connection (optional, via config).
+- Can mirror one incoming bot `id` to additional route IDs (fan-out), so one webhook executes on multiple gateways/accounts.
 - Sends a market order (`BUY` / `SELL`) with configured quantity.
 
 ## Local run
@@ -46,17 +47,22 @@ cp .env.example .env
 
 - `IB_HOST`, `IB_PORT`, `IB_CLIENT_ID` (single-route fallback)
 - `IB_BOT_CONFIGS_JSON` (recommended for one gateway/account per `id`)
+- `IB_MIRROR_MAP_JSON` (optional fan-out/mirroring map)
 - `ALLOWED_BOT_IDS` (comma separated)
 - `DEFAULT_QUANTITY`
 
-Example `IB_BOT_CONFIGS_JSON` for two bot IDs:
+Example for your requested layout:
+
+- Gateway 1 handles `mybot1`, `mybot2`
+- Gateway 2 handles `mybot3`, `mybot4`
+- Orders sent to `mybot1` are also sent to `mybot3`
+- Orders sent to `mybot2` are also sent to `mybot4`
 
 ```bash
-IB_BOT_CONFIGS_JSON={"my-bot1":{"host":"127.0.0.1","port":4001,"client_id":101,"account":"DU111111"},"my-bot2":{"host":"127.0.0.1","port":4002,"client_id":102,"account":"DU222222"}}
-ALLOWED_BOT_IDS=my-bot1,my-bot2
+IB_BOT_CONFIGS_JSON={"mybot1":{"host":"127.0.0.1","port":4001,"client_id":101,"account":"DU111111"},"mybot2":{"host":"127.0.0.1","port":4001,"client_id":102,"account":"DU111111"},"mybot3":{"host":"127.0.0.1","port":4002,"client_id":201,"account":"DU222222"},"mybot4":{"host":"127.0.0.1","port":4002,"client_id":202,"account":"DU222222"}}
+IB_MIRROR_MAP_JSON={"mybot1":["mybot3"],"mybot2":["mybot4"]}
+ALLOWED_BOT_IDS=mybot1,mybot2,mybot3,mybot4
 ```
-
-Each configured `account` must be unique across bot IDs.
 
 4. Start service:
 
@@ -185,7 +191,7 @@ For multiple IB Gateways/accounts, use:
 
 - `IB_BOT_CONFIGS_JSON` with one object per bot `id`
 - different `port` and `client_id` per gateway
-- one unique `account` per bot `id`
+- optional `IB_MIRROR_MAP_JSON` when one incoming bot ID should also execute on another configured route
 
 If you use `deploy_ubuntu.sh`, you can auto-start one gateway service per bot ID:
 
