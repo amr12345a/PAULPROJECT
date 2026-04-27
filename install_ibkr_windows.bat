@@ -79,7 +79,11 @@ if %errorlevel% neq 0 (
 )
 
 set "PY_VERSION="
-for /f %%V in ('py -3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2^>nul') do set "PY_VERSION=%%V"
+for /f %%V in ('py -3.13 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2^>nul') do set "PY_VERSION=%%V"
+
+if not defined PY_VERSION (
+    for /f %%V in ('py -3.12 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2^>nul') do set "PY_VERSION=%%V"
+)
 
 if not defined PY_VERSION (
     exit /b 1
