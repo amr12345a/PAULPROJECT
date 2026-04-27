@@ -39,6 +39,18 @@ namespace NinjaTrader.NinjaScript.Strategies
         [NinjaScriptProperty]
         public string ListenPrefix { get; set; } = "http://127.0.0.1:8000/api/v1/signal/";
 
+        [NinjaScriptProperty]
+        public bool EnableStopLoss { get; set; } = true;
+
+        [NinjaScriptProperty]
+        public int StopLossTicks { get; set; } = 20;
+
+        [NinjaScriptProperty]
+        public bool EnableTakeProfit { get; set; } = true;
+
+        [NinjaScriptProperty]
+        public int TakeProfitTicks { get; set; } = 40;
+
         protected override void OnStateChange()
         {
             if (State == State.SetDefaults)
@@ -51,6 +63,10 @@ namespace NinjaTrader.NinjaScript.Strategies
                 EntryHandling = EntryHandling.AllEntries;
                 RealtimeErrorHandling = RealtimeErrorHandling.StopCancelClose;
                 IsExitOnSessionCloseStrategy = true;
+                EnableStopLoss = true;
+                StopLossTicks = 20;
+                EnableTakeProfit = true;
+                TakeProfitTicks = 40;
             }
             else if (State == State.Configure)
             {
@@ -196,6 +212,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             int quantity = signal.Quantity > 0 ? signal.Quantity : 1;
 
             string signalName = $"{ticker}-{signal.Id}";
+            ConfigureRiskOrders(signalName);
 
             if (string.Equals(signal.Action, "buy", StringComparison.OrdinalIgnoreCase))
             {
@@ -208,6 +225,21 @@ namespace NinjaTrader.NinjaScript.Strategies
             else
             {
                 Print($"Ignored signal with unsupported action: {signal.Action}");
+            }
+        }
+
+        private void ConfigureRiskOrders(string signalName)
+        {
+            if (EnableStopLoss)
+            {
+                int stopLossTicks = StopLossTicks > 0 ? StopLossTicks : 1;
+                SetStopLoss(signalName, CalculationMode.Ticks, stopLossTicks, false);
+            }
+
+            if (EnableTakeProfit)
+            {
+                int takeProfitTicks = TakeProfitTicks > 0 ? TakeProfitTicks : 1;
+                SetProfitTarget(signalName, CalculationMode.Ticks, takeProfitTicks);
             }
         }
 

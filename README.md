@@ -1,4 +1,4 @@
-# IBKR Trade Executor (FastAPI)
+# IBKR Trade Executor (FastAPI, Windows)
 
 Simple HTTP service that receives JSON trade signals and sends orders to Interactive Brokers (TWS or IB Gateway).
 
@@ -26,21 +26,20 @@ Headers:
 - Can mirror one incoming bot `id` to additional route IDs (fan-out), so one webhook executes on multiple gateways/accounts.
 - Sends a market order (`BUY` / `SELL`) with configured quantity.
 
-## Local run
+## Local run on Windows
 
 1. Create and activate environment:
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
 2. Create env file:
 
-```bash
-cp .env.example .env
+```powershell
+Copy-Item .env.example .env
 ```
 
 3. Set values in `.env`:
@@ -51,14 +50,9 @@ cp .env.example .env
 - `ALLOWED_BOT_IDS` (comma separated)
 - `DEFAULT_QUANTITY`
 
-Example for your requested layout:
+Example for one gateway/account per bot ID:
 
-- Gateway 1 handles `mybot1`, `mybot2`
-- Gateway 2 handles `mybot3`, `mybot4`
-- Orders sent to `mybot1` are also sent to `mybot3`
-- Orders sent to `mybot2` are also sent to `mybot4`
-
-```bash
+```dotenv
 IB_BOT_CONFIGS_JSON={"mybot1":{"host":"127.0.0.1","port":4001,"client_id":101,"account":"DU111111"},"mybot2":{"host":"127.0.0.1","port":4001,"client_id":102,"account":"DU111111"},"mybot3":{"host":"127.0.0.1","port":4002,"client_id":201,"account":"DU222222"},"mybot4":{"host":"127.0.0.1","port":4002,"client_id":202,"account":"DU222222"}}
 IB_MIRROR_MAP_JSON={"mybot1":["mybot3"],"mybot2":["mybot4"]}
 ALLOWED_BOT_IDS=mybot1,mybot2,mybot3,mybot4
@@ -66,161 +60,71 @@ ALLOWED_BOT_IDS=mybot1,mybot2,mybot3,mybot4
 
 4. Start service:
 
-```bash
-uvicorn main:app --host 0.0.0.0 --port 80
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8080
 ```
 
-## Test with curl
+## Windows deployment (recommended)
 
-```bash
-curl -X POST "http://13.53.172.241/trade" \
-  -H "content-type: application/json" \
-  -d '{"id":"my-bot2","ticker":"AAPL","action":"buy"}'
+Use the provided deployment script from this folder:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\deploy_windows.ps1 -CreateScheduledTask -OpenFirewall -Port 8080
 ```
 
-## Ubuntu AWS deployment
+What it does:
 
-1. Install system packages:
+- Copies the app to `C:\ProgramData\IBKRTradeExecutor`
+- Creates `.venv` and installs dependencies
+- Creates `.env` from `.env.example` (if missing)
+- Optionally opens Windows Firewall inbound TCP rule
+- Optionally creates a startup scheduled task (`IBKRTradeExecutor`)
 
-```bash
-sudo apt update
-sudo apt install -y python3 python3-venv python3-pip nginx
+Manual start command:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File "C:\ProgramData\IBKRTradeExecutor\start_windows.ps1"
 ```
 
-2. Copy project to server:
+Health check:
 
-```bash
-sudo mkdir -p /opt/ib-trade-executor
-sudo chown -R $USER:$USER /opt/ib-trade-executor
-# copy files into /opt/ib-trade-executor
+```powershell
+curl http://localhost:8080/health
 ```
 
-3. Install dependencies:
+## IB setup on Windows (TWS or IB Gateway)
 
-```bash
-cd /opt/ib-trade-executor
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-cp .env.example .env
-# edit .env with your values
-```
-
-4. Install systemd service:
-
-```bash
-sudo cp ib-trade-executor.service /etc/systemd/system/ib-trade-executor.service
-sudo systemctl daemon-reload
-sudo systemctl enable ib-trade-executor
-sudo systemctl start ib-trade-executor
-sudo systemctl status ib-trade-executor
-```
-
-5. Configure Nginx for port 80:
-
-```bash
-sudo cp ib-trade-executor.nginx /etc/nginx/sites-available/ib-trade-executor
-sudo ln -sf /etc/nginx/sites-available/ib-trade-executor /etc/nginx/sites-enabled/ib-trade-executor
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t
-sudo systemctl enable nginx
-sudo systemctl restart nginx
-```
-
-6. AWS Security Group:
-
-- Allow inbound `80/tcp` from your signal source IP(s).
-- If running behind Nginx, keep the app bound to loopback and keep internal app ports closed to the internet.
-- Keep SSH `22/tcp` restricted to your admin IP.
-
-7. View logs:
-
-```bash
-journalctl -u ib-trade-executor -f
-sudo tail -f /var/log/nginx/access.log /var/log/nginx/error.log
-```
-
-8. Validate through Nginx (port 80):
-
-```bash
-curl http://13.53.172.241/health
-
-curl -X POST "http://13.53.172.241/trade" \
-  -H "content-type: application/json" \
-  -d '{"id":"my-bot2","ticker":"AAPL","action":"buy"}'
-```
-
-## IB setup on Ubuntu AWS (TWS or IB Gateway)
-
-You can run either TWS or IB Gateway. For servers, IB Gateway is usually preferred.
-
-1. Prepare GUI dependencies (for first-time setup):
-
-```bash
-sudo apt update
-sudo apt install -y default-jre xvfb libxtst6 libxrender1 libxi6
-```
-
-2. Install IB Gateway or TWS:
-
-- Download installer from Interactive Brokers Client Portal.
-- Install under a path like `/opt/ibgateway` (or `/opt/ib-tws`).
-
-3. Start IB Gateway/TWS on the server (example with virtual display):
-
-```bash
-xvfb-run -a /opt/ibgateway/ibgateway
-```
-
-4. In IB Gateway/TWS API settings, enable:
-
+1. Install TWS or IB Gateway on Windows.
+2. Log in once manually and keep the platform updated.
+3. In API settings, enable:
 - `Enable ActiveX and Socket Clients`
-- `Socket Port`: use `7497` for paper (or `7496` for live)
+- `Socket Port`: usually `7497` for paper TWS, or set your IB Gateway port like `4001`
 - `Read-Only API`: disabled (must be off to place orders)
-- `Trusted IPs`: include `127.0.0.1` (and any private IP if needed)
-
-5. Set matching values in `.env`:
-
-- `IB_HOST=127.0.0.1`
-- `IB_PORT=7497` (paper) or `7496` (live)
-- `IB_CLIENT_ID=101` (any unused integer)
-- Optional: `IB_ACCOUNT=<your account id>`
+- Trusted hosts/IPs should include where this FastAPI app runs (often `127.0.0.1`)
+4. Set matching values in `.env` (`IB_HOST`, `IB_PORT`, `IB_CLIENT_ID`, optional `IB_ACCOUNT`).
+5. Restart the executor if you change IB settings.
 
 For multiple IB Gateways/accounts, use:
 
 - `IB_BOT_CONFIGS_JSON` with one object per bot `id`
-- different `port` and `client_id` per gateway
-- optional `IB_MIRROR_MAP_JSON` when one incoming bot ID should also execute on another configured route
+- Different `port` and `client_id` per configured route
+- Optional `IB_MIRROR_MAP_JSON` for fan-out/mirroring behavior
 
-If you use `deploy_ubuntu.sh`, you can auto-start one gateway service per bot ID:
+## Test webhook
 
-```bash
-IB_GATEWAY_IDS=my-bot1,my-bot2
+```powershell
+python .\test_webhook.py --url http://127.0.0.1:8080/trade --bot-id mybot2 --ticker AAPL --action buy
 ```
-
-This creates services like `ibgateway-my-bot1` and `ibgateway-my-bot2`.
-
-6. Restart executor after IB settings changes:
-
-```bash
-sudo systemctl restart ib-trade-executor
-```
-
-7. Connectivity checks:
-
-- `curl http://127.0.0.1/health` should show `"ib_connected": true`.
-- If `false`, check IB app is logged in and API socket settings are enabled.
 
 ## Important IBKR notes
 
-- Use `IB_PORT=7497` for paper TWS by default (often `7496` for live).
-- In TWS/IB Gateway API settings, enable socket clients and allow your server IP.
-- `IB_CLIENT_ID` must be unique per connection.
-- Start with paper trading before live trading.
+- Use paper trading first.
+- `IB_CLIENT_ID` must be unique per active API session.
+- If `/health` reports disconnected IB, verify login/session status and API socket settings in IB app.
 
 ## Security recommendations
 
-- Keep direct app access restricted if you deploy a reverse proxy.
-- Prefer HTTPS (Let's Encrypt) for production.
-
+- Restrict firewall rule source IPs to known webhook senders.
+- Prefer HTTPS via reverse proxy if exposing public internet endpoints.
+- Keep credentials and account IDs only in `.env` and never commit secrets.
