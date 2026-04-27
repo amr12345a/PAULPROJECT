@@ -81,6 +81,14 @@ What it does:
 - Optionally opens Windows Firewall inbound TCP rule
 - Optionally creates a startup scheduled task (`IBKRTradeExecutor`)
 
+For a one-step bootstrap that also installs Python and can install IB Gateway from a provided installer path or URL, run:
+
+```bat
+install_ibkr_windows.bat
+```
+
+If you need IB Gateway to be downloaded automatically, set `IB_GATEWAY_INSTALLER_URL` before running the batch file. If you already have the installer locally, set `IB_GATEWAY_INSTALLER_PATH` instead.
+
 Manual start command:
 
 ```powershell
