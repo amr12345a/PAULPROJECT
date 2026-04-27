@@ -85,10 +85,8 @@ if not defined PY_VERSION (
     exit /b 1
 )
 
-echo %PY_VERSION% | findstr /r "^3\.(12\|13)$" >nul
-if %errorlevel% equ 0 (
-    exit /b 0
-)
+if "%PY_VERSION%"=="3.12" exit /b 0
+if "%PY_VERSION%"=="3.13" exit /b 0
 
 exit /b 1
 
